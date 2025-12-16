@@ -192,7 +192,7 @@ func (m *Manager) GetImageKey() error {
 	return nil
 }
 
-func (m *Manager) RestartAndGetDataKey() error {
+func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 	if m.ctx.Current == nil {
 		return fmt.Errorf("未选择任何账号")
 	}
@@ -201,6 +201,9 @@ func (m *Manager) RestartAndGetDataKey() error {
 	exePath := m.ctx.Current.ExePath
 
 	// 1. Terminate the process
+	if onStatus != nil {
+		onStatus("正在结束微信进程...")
+	}
 	log.Info().Msgf("Killing WeChat process with PID %d", pid)
 	process, err := os.FindProcess(int(pid))
 	if err != nil {
@@ -228,6 +231,9 @@ func (m *Manager) RestartAndGetDataKey() error {
 	}
 
 	// 3. Restart WeChat
+	if onStatus != nil {
+		onStatus("正在重启微信...")
+	}
 	log.Info().Msgf("Restarting WeChat from %s", exePath)
 	cmd := exec.Command(exePath)
 	if err := cmd.Start(); err != nil {
@@ -235,6 +241,9 @@ func (m *Manager) RestartAndGetDataKey() error {
 	}
 
 	// 4. Wait for the new process to appear.
+	if onStatus != nil {
+		onStatus("正在等待新进程启动...")
+	}
 	log.Info().Msg("Waiting for new WeChat process to start...")
 	var newInstance *iwechat.Account
 	for i := 0; i < 30; i++ { // Wait for max 30 seconds
@@ -261,10 +270,53 @@ func (m *Manager) RestartAndGetDataKey() error {
 	m.ctx.SwitchCurrent(newInstance)
 
 	// 6. Get the key
+	// 增加重试逻辑：微信刚启动时可能DLL未加载完成导致Hook失败，需要等待
 	log.Info().Msg("Getting key from new WeChat process...")
-	if _, err := m.wechat.GetDataKey(m.ctx.Current); err != nil {
-		return err
+
+	// 使用携带回调的 context
+	ctx := context.WithValue(context.Background(), "status_callback", onStatus)
+
+	var key, imgKey string
+
+	// 初始化截止时间 (30秒)
+	deadline := time.Now().Add(30 * time.Second)
+
+	for {
+		if onStatus != nil {
+			onStatus("正在等待微信初始化...")
+		}
+
+		// 尝试获取密钥 (会尝试初始化DLL)
+		key, imgKey, err = m.ctx.Current.GetKey(ctx)
+
+		// 如果成功，跳出循环
+		// 注意：GetKey 成功意味着 Hook 安装成功且已经获取到了密钥
+		// 但实际上 DLL 模式下，Extract 会在 Hook 安装成功后阻塞轮询。
+		// 所以如果这里返回 nil，说明已经完成了整个流程。
+		if err == nil {
+			break
+		}
+
+		// 如果超时，且包含特定错误，则退出
+		if time.Now().After(deadline) {
+			return fmt.Errorf("获取密钥超时: %v", err)
+		}
+
+		// 检查错误类型，决定是否重试
+		// 如果是初始化失败（例如微信模块未加载），则重试
+		// 如果是 "wechat process not found" 等临时错误，也重试
+		// 如果是 pollKeys 内部的超时（30s），说明 Hook 成功但用户未操作，此时不应该重试，
+		// 但 pollKeys 内部超时会返回错误，这里会捕获。
+		// 不过 pollKeys 耗时 30s，如果走到这里说明已经等了 30s，外层 deadline 也会触发。
+		
+		// 只有快速失败（初始化错误）才需要 fast retry
+		log.Debug().Err(err).Msg("获取密钥尝试失败，准备重试")
+		
+		time.Sleep(1 * time.Second)
 	}
+
+	m.ctx.DataKey = key
+	m.ctx.ImgKey = imgKey
 	m.ctx.Refresh()
 	m.ctx.UpdateConfig()
 
@@ -543,3 +595,4 @@ func (m *Manager) CommandHTTPServer(configPath string, cmdConf map[string]any) e
 
 	return m.http.ListenAndServe()
 }
+

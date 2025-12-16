@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/sjzar/chatlog/internal/errors"
+	"github.com/sjzar/chatlog/internal/wechat/decrypt"
 	"github.com/sjzar/chatlog/internal/wechat/model"
 )
 
@@ -22,11 +23,10 @@ const (
 )
 
 func (e *V4Extractor) Extract(ctx context.Context, proc *model.Process) (string, string, error) {
-	// 即使状态是offline（未登录），也允许尝试
-	// 因为用户可能在获取密钥过程中登录微信
-	if proc.Status == model.StatusOffline {
-		log.Info().Msg("微信进程存在但未登录，将尝试获取密钥，请登录微信后操作")
-		// 不返回错误，继续执行
+	// 图片密钥扫描强依赖 dataDir 以及验证样本（*_t.dat / 模板文件），需要登录成功并浏览图片后才能就绪。
+	// 因此：dataDir 未就绪时直接返回，让上层负责等待/重试，避免启动无效内存扫描。
+	if proc.DataDir == "" {
+		return "", "", fmt.Errorf("数据目录未就绪，无法进行图片密钥扫描，请确保微信已登录")
 	}
 
 	// Open process handle
@@ -40,8 +40,38 @@ func (e *V4Extractor) Extract(ctx context.Context, proc *model.Process) (string,
 	// 这给用户足够的时间去打开图片
 	timeout := time.After(60 * time.Second)
 	scanRound := 0
+	waitTick := 0
 
 	for {
+		// 确保图片验证样本就绪：如果用户刚登录/刚打开图片，*_t.dat 可能是运行中生成的
+		// 这里按 1s 轮询尝试构建“仅图片验证”的验证器，样本就绪后才进入真正的内存扫描。
+		if e.validator == nil || !e.validator.ImgKeyReady() {
+			// 尝试用 dataDir 重新加载验证样本（不依赖数据库文件存在）
+			if v, _ := decrypt.NewImgKeyOnlyValidator(proc.Platform, proc.Version, proc.DataDir); v != nil {
+				e.validator = v
+			}
+
+			// 样本仍未就绪：提示用户打开图片触发缓存生成
+			if e.validator == nil || !e.validator.ImgKeyReady() {
+				if waitTick == 0 || waitTick%5 == 0 {
+					msg := "图片密钥验证样本未就绪：请确保微信已登录，并打开任意图片以生成缓存文件（*_t.dat）后再继续"
+					log.Info().Msg(msg)
+					if e.logger != nil {
+						e.logger.LogInfo(msg)
+					}
+				}
+				select {
+				case <-ctx.Done():
+					return "", "", ctx.Err()
+				case <-timeout:
+					return "", "", fmt.Errorf("获取图片密钥超时(60秒)：验证样本未就绪，请登录微信并打开图片后重试")
+				case <-time.After(1 * time.Second):
+					waitTick++
+					continue
+				}
+			}
+		}
+
 		scanRound++
 		// Create context to control all goroutines for THIS round
 		scanCtx, cancel := context.WithCancel(ctx)
@@ -210,7 +240,6 @@ func (e *V4Extractor) worker(ctx context.Context, handle windows.Handle, memoryC
 	var imgKey string // dataKey removed
 	
 	// Logging flags and counters
-	validatorWarned := false
 	candidateCount := 0
 
 	for {
@@ -240,14 +269,7 @@ func (e *V4Extractor) worker(ctx context.Context, handle windows.Handle, memoryC
 			// Only if we haven't found ImgKey yet
 			if imgKey == "" {
 				if e.validator == nil {
-					if !validatorWarned {
-						msg := "验证器未初始化(可能未找到*_t.dat文件)，跳过图片密钥扫描"
-						log.Warn().Msg(msg)
-						if e.logger != nil {
-							e.logger.LogWarning(msg)
-						}
-						validatorWarned = true
-					}
+					// 理论上不会发生（Extract 会先等待验证样本就绪），这里仅做兜底避免空指针
 					continue
 				}
 

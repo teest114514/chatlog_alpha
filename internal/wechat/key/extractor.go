@@ -6,7 +6,6 @@ import (
 
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/wechat/decrypt"
-	"github.com/sjzar/chatlog/internal/wechat/key/darwin"
 	"github.com/sjzar/chatlog/internal/wechat/key/windows"
 	"github.com/sjzar/chatlog/internal/wechat/model"
 )
@@ -26,11 +25,6 @@ type Extractor interface {
 // NewExtractor 创建适合当前平台的密钥提取器
 // 对于Windows平台，优先使用DLL方式（如果DLL存在）
 func NewExtractor(platform string, version int) (Extractor, error) {
-	// 暂停对V3版本的支持
-	if version == 3 {
-		return nil, fmt.Errorf("当前已暂停对微信V3版本的支持")
-	}
-
 	switch {
 	case platform == "windows" && version == 4:
 		// 尝试使用DLL方式
@@ -39,8 +33,6 @@ func NewExtractor(platform string, version int) (Extractor, error) {
 		}
 		// 如果DLL方式失败，回退到原来的方式
 		return windows.NewV4Extractor(), nil
-	case platform == "darwin" && version == 4:
-		return darwin.NewV4Extractor(), nil
 	default:
 		return nil, errors.PlatformUnsupported(platform, version)
 	}

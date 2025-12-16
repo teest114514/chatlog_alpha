@@ -5,7 +5,6 @@ import (
 	"io"
 
 	"github.com/sjzar/chatlog/internal/errors"
-	"github.com/sjzar/chatlog/internal/wechat/decrypt/darwin"
 	"github.com/sjzar/chatlog/internal/wechat/decrypt/windows"
 )
 
@@ -34,14 +33,8 @@ type Decryptor interface {
 func NewDecryptor(platform string, version int) (Decryptor, error) {
 	// 根据平台返回对应的实现
 	switch {
-	case platform == "windows" && version == 3:
-		return windows.NewV3Decryptor(), nil
 	case platform == "windows" && version == 4:
 		return windows.NewV4Decryptor(), nil
-	case platform == "darwin" && version == 3:
-		return darwin.NewV3Decryptor(), nil
-	case platform == "darwin" && version == 4:
-		return darwin.NewV4Decryptor(), nil
 	default:
 		return nil, errors.PlatformUnsupported(platform, version)
 	}

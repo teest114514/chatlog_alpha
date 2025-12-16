@@ -2,7 +2,6 @@ package process
 
 import (
 	"github.com/sjzar/chatlog/internal/wechat/model"
-	"github.com/sjzar/chatlog/internal/wechat/process/darwin"
 	"github.com/sjzar/chatlog/internal/wechat/process/windows"
 )
 
@@ -16,8 +15,6 @@ func NewDetector(platform string) Detector {
 	switch platform {
 	case "windows":
 		return windows.NewDetector()
-	case "darwin":
-		return darwin.NewDetector()
 	default:
 		// 默认返回一个空实现
 		return &nullDetector{}

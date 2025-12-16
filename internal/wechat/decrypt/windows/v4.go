@@ -18,6 +18,9 @@ import (
 const (
 	V4IterCount    = 256000
 	HmacSHA512Size = 64
+	// WeChat 数据库默认页大小（SQLite page size）
+	// 之前由 V3 实现文件共享定义；移除 V3 支持后在此处显式保留。
+	PageSize = 4096
 )
 
 // V4Decryptor 实现Windows V4版本的解密器

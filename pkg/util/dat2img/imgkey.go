@@ -13,11 +13,18 @@ import (
 type AesKeyValidator struct {
 	Path          string
 	EncryptedData []byte
+	TemplateFile  string // 用于验证的样本文件路径
+	// TemplateSource:
+	// - "t.dat": 来自 *_t.dat（优先且稳定）
+	// - "fallback": 来自普通 .dat 的备用样本（可能不稳定/不匹配）
+	// - "none": 未找到样本
+	TemplateSource string
 }
 
 func NewImgKeyValidator(path string) *AesKeyValidator {
 	validator := &AesKeyValidator{
-		Path: path,
+		Path:           path,
+		TemplateSource: "none",
 	}
 
 	log.Info().Msgf("开始在 %s 查找验证样本文件", path)
@@ -48,6 +55,8 @@ func NewImgKeyValidator(path string) *AesKeyValidator {
 			// Extract 16 bytes starting at offset 0xF (15)
 			validator.EncryptedData = make([]byte, aes.BlockSize)
 			copy(validator.EncryptedData, data[0xF:0xF+aes.BlockSize])
+			validator.TemplateFile = filePath
+			validator.TemplateSource = "t.dat"
 			foundTemplate = true
 			log.Info().Msgf("找到模板文件: %s", filePath)
 			return filepath.SkipAll
@@ -87,6 +96,8 @@ func NewImgKeyValidator(path string) *AesKeyValidator {
 		if len(data) >= 15+aes.BlockSize && bytes.Equal(data[:4], V4Format2.Header[:4]) {
 			validator.EncryptedData = make([]byte, aes.BlockSize)
 			copy(validator.EncryptedData, data[15:15+aes.BlockSize])
+			validator.TemplateFile = filePath
+			validator.TemplateSource = "fallback"
 			log.Info().Msgf("找到备用模板文件: %s", filePath)
 			return filepath.SkipAll // Found what we need, stop walking
 		}
@@ -96,6 +107,7 @@ func NewImgKeyValidator(path string) *AesKeyValidator {
 
 	if len(validator.EncryptedData) == 0 {
 		log.Warn().Msg("未找到任何可用的验证样本文件")
+		validator.TemplateSource = "none"
 	}
 
 	return validator

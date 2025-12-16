@@ -245,6 +245,26 @@ func (a *Account) GetKey(ctx context.Context) (string, string, error) {
 				return a.Key, a.ImgKey, nil
 			}
 
+			// 图片密钥扫描依赖 DataDir（需要微信登录成功后才会就绪）
+			if process.DataDir == "" {
+				log.Info().Msg("检测到数据目录未就绪，等待微信登录...")
+				for i := 0; i < 30; i++ {
+					time.Sleep(1 * time.Second)
+					if err := a.RefreshStatus(); err == nil {
+						if p, err := GetProcess(a.Name); err == nil && p.DataDir != "" {
+							process = p
+							a.DataDir = p.DataDir
+							log.Info().Msgf("数据目录已就绪: %s", p.DataDir)
+							break
+						}
+					}
+				}
+			}
+			if process.DataDir == "" {
+				log.Warn().Msg("数据目录未就绪，无法补全图片密钥（请确保微信已登录）")
+				return a.Key, a.ImgKey, nil
+			}
+
 			// 准备验证器
 			var validator *decrypt.Validator
 			if process.DataDir != "" {
@@ -293,18 +313,23 @@ func (a *Account) GetKey(ctx context.Context) (string, string, error) {
 		return "", "", err
 	}
 
-	// 如果是V4版本且DataDir为空，等待微信登录及数据目录就绪
-	// 原生扫描器强烈依赖DataDir来查找验证样本
-	if isV4 && process.DataDir == "" {
-		log.Info().Msg("检测到V4版本且数据目录未就绪，等待微信登录...")
-		for i := 0; i < 30; i++ {
-			time.Sleep(1 * time.Second)
-			if err := a.RefreshStatus(); err == nil {
-				if p, err := GetProcess(a.Name); err == nil && p.DataDir != "" {
-					process = p
-					a.DataDir = p.DataDir
-					log.Info().Msgf("数据目录已就绪: %s", p.DataDir)
-					break
+	// 对于 Windows V4：
+	// - DLL 提取器（InitializeHook/注入）不依赖 DataDir，应在微信进程出现后立即执行；
+	// - 只有在非 DLL（纯内存扫描）模式下，才需要等待 DataDir 就绪来提升验证成功率。
+	if isV4 && process.DataDir == "" && a.Platform == "windows" {
+		if _, ok := extractor.(*windows.DLLExtractor); ok {
+			log.Info().Msg("检测到V4版本且数据目录未就绪，将先初始化DLL Hook（无需等待登录），登录后打开聊天窗口即可触发密钥获取")
+		} else {
+			log.Info().Msg("检测到V4版本且数据目录未就绪（非DLL模式），等待微信登录...")
+			for i := 0; i < 30; i++ {
+				time.Sleep(1 * time.Second)
+				if err := a.RefreshStatus(); err == nil {
+					if p, err := GetProcess(a.Name); err == nil && p.DataDir != "" {
+						process = p
+						a.DataDir = p.DataDir
+						log.Info().Msgf("数据目录已就绪: %s", p.DataDir)
+						break
+					}
 				}
 			}
 		}

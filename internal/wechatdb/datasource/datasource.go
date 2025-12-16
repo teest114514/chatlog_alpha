@@ -8,9 +8,7 @@ import (
 
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
-	"github.com/sjzar/chatlog/internal/wechatdb/datasource/darwinv3"
 	v4 "github.com/sjzar/chatlog/internal/wechatdb/datasource/v4"
-	"github.com/sjzar/chatlog/internal/wechatdb/datasource/windowsv3"
 )
 
 type DataSource interface {
@@ -38,13 +36,7 @@ type DataSource interface {
 
 func New(path string, platform string, version int) (DataSource, error) {
 	switch {
-	case platform == "windows" && version == 3:
-		return windowsv3.New(path)
 	case platform == "windows" && version == 4:
-		return v4.New(path)
-	case platform == "darwin" && version == 3:
-		return darwinv3.New(path)
-	case platform == "darwin" && version == 4:
 		return v4.New(path)
 	default:
 		return nil, errors.PlatformUnsupported(platform, version)

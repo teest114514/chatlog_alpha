@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
 
 	"github.com/rs/zerolog/log"
+	gopsprocess "github.com/shirou/gopsutil/v4/process"
 	"golang.org/x/sys/windows"
 
 	"github.com/sjzar/chatlog/internal/wechat/decrypt"
@@ -105,11 +108,12 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 			e.cleanup()
 		}
 	}
-	e.mu.Unlock() // 初始化完成后解锁，允许并行执行（注意pollKeys内部需要处理并发访问，或者我们确保它独占DLL资源）
-	// 查看pollKeys实现，它只访问e.lastKey和DLL函数，且DLLExtractor是单例/单次使用的，所以这里解锁只要保证没有其他Extract调用即可。
-	// 但为了安全，我们在pollKeys的goroutine里重新加锁？不，pollKeys是长时间运行的。
-	// 实际上DLLExtractor的设计似乎假设是单线程使用的。
-	// 为了安全起见，我们在DLL goroutine里持有锁。
+	e.mu.Unlock() // 初始化完成后解锁，允许并行执行
+	
+	// DLL初始化成功，检查是否有回调需要通知
+	if cb, ok := ctx.Value("status_callback").(func(string)); ok {
+		cb("Hook安装成功（已完成DLL注入），如未登录请登录微信；然后打开任意聊天窗口以触发密钥加载...")
+	}
 
 	// 准备并行执行
 	var (
@@ -141,19 +145,11 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 		}
 
 		// 检查是否所有需要的密钥都已获取
-		// 对于V4：需要DataKey + ImgKey
-		// 对于V3：只需要DataKey
+		// 当前仅支持 V4：需要 DataKey + ImgKey
 		if updated {
-			if proc.Version == 4 {
-				if finalDataKey != "" && finalImgKey != "" {
-					log.Info().Msg("已获取所有所需密钥，提前结束轮询")
-					cancel()
-				}
-			} else {
-				if finalDataKey != "" {
-					log.Info().Msg("已获取所有所需密钥，提前结束轮询")
-					cancel()
-				}
+			if finalDataKey != "" && finalImgKey != "" {
+				log.Info().Msg("已获取所有所需密钥，提前结束轮询")
+				cancel()
 			}
 		}
 	}
@@ -181,23 +177,44 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 
 	// 任务 2: 原生内存扫描 (仅V4版本，运行在Goroutine中)
 	if proc.Version == 4 {
+		// 注意：这里不再依赖“调用时刻的 proc.DataDir/validator 状态”来决定是否启动扫描。
+		// 原因：DLL 支持用户在获取过程中登录，而 DataDir 往往在登录后才可通过打开的 DB 文件推导出来。
+		// 我们在协程中按 PID 轮询解析 DataDir，就绪后再启动 V4 扫描器；扫描器内部会等待 *_t.dat 样本就绪，避免白跑。
 		wg.Add(1)
-		go func() {
+		go func(pid uint32) {
 			defer wg.Done()
-			
-			log.Info().Msg("并行启动原生内存扫描(Dart模式)...")
-			
-			v4 := NewV4Extractor()
-			v4.SetValidate(e.validator)
-			
-			// 执行扫描
-			dk, ik, _ := v4.Extract(ctx, proc)
-			
-			// 更新结果
-			if dk != "" || ik != "" {
-				updateKeys(dk, ik, "内存扫描")
+
+			scanProc := *proc // copy，避免并发读写外部对象
+
+			// 1) 等待 DataDir 就绪（按 PID 从打开文件推导；登录后很快就会出现 session.db）
+			if scanProc.DataDir == "" {
+				msg := "等待数据目录就绪（需要登录成功）；就绪后将自动启动内存扫描获取图片密钥..."
+				log.Info().Msg(msg)
+				if e.logger != nil {
+					e.logger.LogInfo(msg)
+				}
+
+				dataDir, err := waitForV4DataDirByPID(ctx, pid)
+				if err != nil {
+					// ctx 取消/超时等情况，直接返回让流程继续（仍可拿到 DataKey）
+					if e.logger != nil {
+						e.logger.LogWarning("数据目录未就绪，跳过图片密钥扫描: " + err.Error())
+					}
+					return
+				}
+				scanProc.DataDir = dataDir
 			}
-		}()
+
+			// 2) 启动 V4 原生扫描器（内部会等待 *_t.dat 样本就绪再扫描）
+			log.Info().Msg("并行启动原生内存扫描(Dart模式)以获取图片密钥...")
+			v4 := NewV4Extractor()
+			v4.SetValidate(e.validator) // 可为空；Extract 内部会按 dataDir 尝试构建 ImgKeyOnlyValidator
+
+			_, ik, _ := v4.Extract(ctx, &scanProc)
+			if ik != "" {
+				updateKeys("", ik, "内存扫描")
+			}
+		}(proc.PID)
 	}
 
 	// 等待所有任务完成（或超时/被取消）
@@ -210,6 +227,50 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 	}
 
 	return finalDataKey, finalImgKey, err
+}
+
+// waitForV4DataDirByPID 通过 PID 轮询进程打开的文件，推导出微信 V4 的 DataDir。
+// 逻辑与进程 detector 一致：找到 db_storage\session\session.db 后，去掉最后 3 段路径。
+func waitForV4DataDirByPID(ctx context.Context, pid uint32) (string, error) {
+	const v4SessionDBSuffix = `db_storage\session\session.db`
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+			p, err := gopsprocess.NewProcess(int32(pid))
+			if err != nil {
+				continue
+			}
+			files, err := p.OpenFiles()
+			if err != nil {
+				continue
+			}
+			for _, f := range files {
+				if !strings.HasSuffix(f.Path, v4SessionDBSuffix) {
+					continue
+				}
+				filePath := f.Path
+				// 移除 "\\?\" 前缀（与 detector 保持一致）
+				if strings.HasPrefix(filePath, `\\?\`) {
+					filePath = filePath[4:]
+				}
+				parts := strings.Split(filePath, string(filepath.Separator))
+				// ...\db_storage\session\session.db  至少需要 4 段以上
+				if len(parts) < 4 {
+					continue
+				}
+				dataDir := strings.Join(parts[:len(parts)-3], string(filepath.Separator))
+				if dataDir != "" {
+					return dataDir, nil
+				}
+			}
+		}
+	}
 }
 
 // initialize 初始化DLL Hook
@@ -336,8 +397,8 @@ func (e *DLLExtractor) pollKeys(ctx context.Context, version int, onKeyFound fun
 
 				foundNew := false
 
-				// 检查是否是数据库密钥
-				if e.validator != nil && e.validator.Validate(keyBytes) {
+				// 检查是否是数据库密钥（仅当 DB 验证样本就绪时）
+				if e.validator != nil && e.validator.DBReady() && e.validator.Validate(keyBytes) {
 					if dataKey == "" {
 						dataKey = key
 						foundNew = true
@@ -349,8 +410,8 @@ func (e *DLLExtractor) pollKeys(ctx context.Context, version int, onKeyFound fun
 							e.logger.LogInfo(msg)
 						}
 					}
-				} else if e.validator == nil {
-					// 验证器为nil时，根据密钥长度判断
+				} else if e.validator == nil || !e.validator.DBReady() {
+					// DB 验证不可用时，根据密钥长度判断（尽量不阻断 DataKey 获取）
 					// 数据库密钥通常是32字节（64字符HEX字符串）
 					// 图片密钥通常是16字节（32字符HEX字符串）
 					if len(key) == 64 && dataKey == "" {
@@ -363,7 +424,7 @@ func (e *DLLExtractor) pollKeys(ctx context.Context, version int, onKeyFound fun
 							e.logger.LogPolling(true, key, "数据库")
 							e.logger.LogInfo(msg)
 						}
-					} else if len(key) == 32 && imgKey == "" {
+					} else if len(key) == 32 && imgKey == "" && (e.validator == nil || !e.validator.ImgKeyReady()) {
 						imgKey = key
 						foundNew = true
 						msg := "通过DLL找到图片密钥（无验证）: " + imgKey
@@ -376,8 +437,8 @@ func (e *DLLExtractor) pollKeys(ctx context.Context, version int, onKeyFound fun
 					}
 				}
 
-				// 检查是否是图片密钥（取前16字节）
-				if e.validator != nil && e.validator.ValidateImgKey(keyBytes) {
+				// 检查是否是图片密钥（取前16字节；需要 ImgKey 验证样本就绪）
+				if e.validator != nil && e.validator.ImgKeyReady() && e.validator.ValidateImgKey(keyBytes) {
 					if imgKey == "" {
 						imgKey = key[:32] // 16字节的HEX字符串是32个字符
 						foundNew = true
@@ -399,11 +460,6 @@ func (e *DLLExtractor) pollKeys(ctx context.Context, version int, onKeyFound fun
 				// 如果两个密钥都找到了，返回
 				if dataKey != "" && imgKey != "" {
 					return dataKey, imgKey, nil
-				}
-
-				// 对于微信V3，只需要数据库密钥
-				if version == 3 && dataKey != "" {
-					return dataKey, "", nil
 				}
 
 			} else {

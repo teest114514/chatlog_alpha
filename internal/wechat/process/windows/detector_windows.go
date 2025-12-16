@@ -22,10 +22,8 @@ func initializeProcessInfo(p *process.Process, info *model.Process) error {
 		return nil
 	}
 
-	dbPath := V3DBFile
-	if info.Version == 4 {
-		dbPath = V4DBFile
-	}
+	// 仅支持微信 V4：通过 session.db 推导 DataDir 与账号名
+	dbPath := V4DBFile
 
 	for _, f := range files {
 		if strings.HasSuffix(f.Path, dbPath) {
@@ -37,13 +35,8 @@ func initializeProcessInfo(p *process.Process, info *model.Process) error {
 			}
 
 			info.Status = model.StatusOnline
-			if info.Version == 4 {
-				info.DataDir = strings.Join(parts[:len(parts)-3], string(filepath.Separator))
-				info.AccountName = parts[len(parts)-4]
-			} else {
-				info.DataDir = strings.Join(parts[:len(parts)-2], string(filepath.Separator))
-				info.AccountName = parts[len(parts)-3]
-			}
+			info.DataDir = strings.Join(parts[:len(parts)-3], string(filepath.Separator))
+			info.AccountName = parts[len(parts)-4]
 			return nil
 		}
 	}

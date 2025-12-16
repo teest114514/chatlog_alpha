@@ -11,9 +11,7 @@ import (
 )
 
 const (
-	V3ProcessName = "WeChat"
 	V4ProcessName = "Weixin"
-	V3DBFile      = `Msg\Misc.db`
 	V4DBFile      = `db_storage\session\session.db`
 )
 
@@ -37,7 +35,7 @@ func (d *Detector) FindProcesses() ([]*model.Process, error) {
 	for _, p := range processes {
 		name, err := p.Name()
 		name = strings.TrimSuffix(name, ".exe")
-		if err != nil || (name != V3ProcessName && name != V4ProcessName) {
+		if err != nil || name != V4ProcessName {
 			continue
 		}
 

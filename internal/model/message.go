@@ -12,9 +12,7 @@ import (
 var Debug = false
 
 const (
-	WeChatV3       = "wechatv3"
 	WeChatV4       = "wechatv4"
-	WeChatDarwinV3 = "wechatdarwinv3"
 )
 
 const (

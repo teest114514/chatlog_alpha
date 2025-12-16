@@ -270,12 +270,19 @@ func (a *App) initMenu() {
 		Name:        "重启并获取密钥",
 		Description: "结束当前微信进程，重启后获取密钥",
 		Selected: func(i *menu.Item) {
-			modal := tview.NewModal().SetText("正在重启微信并获取密钥...")
+			modal := tview.NewModal().SetText("正在准备重启微信...")
 			a.mainPages.AddPage("modal", modal, true, true)
 			a.SetFocus(modal)
 
 			go func() {
-				err := a.m.RestartAndGetDataKey()
+				// 定义状态更新回调
+				onStatus := func(msg string) {
+					a.QueueUpdateDraw(func() {
+						modal.SetText(msg)
+					})
+				}
+
+				err := a.m.RestartAndGetDataKey(onStatus)
 
 				a.QueueUpdateDraw(func() {
 					if err != nil {
@@ -431,11 +438,7 @@ func (a *App) initMenu() {
 							modal.SetText("开启自动解密失败: " + err.Error())
 						} else {
 							// 开启成功
-							if a.ctx.Version == 3 {
-								modal.SetText("已开启自动解密\n3.x版本数据文件更新不及时，有低延迟需求请使用4.0版本")
-							} else {
-								modal.SetText("已开启自动解密")
-							}
+							modal.SetText("已开启自动解密")
 						}
 
 						// 更改菜单项名称
