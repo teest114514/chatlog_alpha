@@ -136,6 +136,7 @@ func (s *Service) handleChatlog(c *gin.Context) {
 
 	// Populate md5->path cache for media files
 	s.populateMD5PathCache(messages)
+	s.enrichMessages(messages)
 
 	switch strings.ToLower(q.Format) {
 	case "chatlab":
@@ -149,7 +150,7 @@ func (s *Service) handleChatlog(c *gin.Context) {
 				}
 			}
 		}
-		
+
 		chatLabData := model.ConvertToChatLab(messages, q.Talker, talkerName)
 		c.JSON(http.StatusOK, chatLabData)
 	case "csv":
@@ -513,7 +514,10 @@ func (s *Service) handleMedia(c *gin.Context, _type string) {
 			s.handleImageFile(c, filepath.Join(s.conf.GetDataDir(), media.Path))
 			return
 		default:
-			// For other types, keep the old redirect logic
+			if resolvedPath, err := s.findPath(_type, media.Path); err == nil {
+				c.Redirect(http.StatusFound, "/data/"+resolvedPath)
+				return
+			}
 			c.Redirect(http.StatusFound, "/data/"+media.Path)
 			return
 		}
@@ -532,9 +536,10 @@ func (s *Service) findPath(_type string, key string) (string, error) {
 	}
 	switch _type {
 	case "image":
-		for _, suffix := range []string{"_h.dat", ".dat", "_t.dat"} {
-			if _, err := os.Stat(absolutePath + suffix); err == nil {
-				return key + suffix, nil
+		for _, candidate := range s.imagePathCandidates(key) {
+			testPath := filepath.Join(s.conf.GetDataDir(), candidate)
+			if _, err := os.Stat(testPath); err == nil {
+				return candidate, nil
 			}
 		}
 	case "video":
@@ -622,27 +627,58 @@ func (s *Service) getMD5FromCache(md5 string) string {
 	return ""
 }
 
-// tryFindFileWithSuffixes tries to find a file with different suffixes
-// Priority: .dat (original) -> _h.dat (HD) -> _t.dat (thumbnail)
+func (s *Service) imagePathCandidates(basePath string) []string {
+	candidates := []string{basePath}
+	if filepath.Ext(basePath) != "" {
+		return candidates
+	}
+
+	candidates = append(candidates,
+		basePath+".jpg",
+		basePath+".png",
+		basePath+".gif",
+		basePath+".jpeg",
+		basePath+".bmp",
+		basePath+"_t",
+		basePath+"_t.jpg",
+		basePath+"_t.png",
+		basePath+"_t.gif",
+		basePath+"_t.jpeg",
+		basePath+"_t.bmp",
+		basePath+"_h.dat",
+		basePath+".dat",
+		basePath+"_t.dat",
+	)
+	return candidates
+}
+
+func (s *Service) resolveExistingImagePath(basePath string) string {
+	for _, candidate := range s.imagePathCandidates(basePath) {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// tryFindFileWithSuffixes tries common media suffixes for cached paths.
 func (s *Service) tryFindFileWithSuffixes(basePath string) string {
 	dataDir := s.conf.GetDataDir()
 
-	// Try different suffixes with priority: original -> HD -> thumbnail
-	suffixes := []string{".dat", "_h.dat", "_t.dat"}
-
-	for _, suffix := range suffixes {
-		testPath := filepath.Join(dataDir, basePath+suffix)
+	for _, candidate := range s.imagePathCandidates(basePath) {
+		testPath := filepath.Join(dataDir, candidate)
 		if _, err := os.Stat(testPath); err == nil {
-			log.Debug().Str("path", testPath).Str("suffix", suffix).Msg("Found file with suffix")
+			log.Debug().Str("path", testPath).Msg("Found image candidate")
 			return testPath
 		}
 	}
 
-	// Try without any suffix (might already have extension)
-	testPath := filepath.Join(dataDir, basePath)
-	if _, err := os.Stat(testPath); err == nil {
-		log.Debug().Str("path", testPath).Msg("Found file without suffix")
-		return testPath
+	for _, suffix := range []string{".mp4", "_thumb.jpg"} {
+		testPath := filepath.Join(dataDir, basePath+suffix)
+		if _, err := os.Stat(testPath); err == nil {
+			log.Debug().Str("path", testPath).Str("suffix", suffix).Msg("Found video candidate")
+			return testPath
+		}
 	}
 
 	log.Debug().Str("basePath", basePath).Msg("File not found with any suffix")
@@ -683,6 +719,10 @@ func (s *Service) populateMD5PathCache(messages []*model.Message) {
 
 // handleImageFile processes an image file, handling decryption if it's a .dat file or file without extension
 func (s *Service) handleImageFile(c *gin.Context, absolutePath string) {
+	if resolvedPath := s.resolveExistingImagePath(absolutePath); resolvedPath != "" {
+		absolutePath = resolvedPath
+	}
+
 	// Check if the file needs decryption (either .dat extension or no extension)
 	needsDecryption := strings.HasSuffix(strings.ToLower(absolutePath), ".dat") ||
 		filepath.Ext(absolutePath) == ""
@@ -978,7 +1018,7 @@ func (s *Service) handleGetDBTableData(c *gin.Context) {
 		s.exportData(c, data, format, table)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, data)
 }
 
@@ -1050,16 +1090,16 @@ func (s *Service) exportData(c *gin.Context, data []map[string]interface{}, form
 				log.Error().Err(err).Msg("Failed to close excel file")
 			}
 		}()
-		
+
 		sheet := "Sheet1"
 		index, _ := f.NewSheet(sheet)
-		
+
 		// Write headers
 		for i, h := range headers {
 			cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 			f.SetCellValue(sheet, cell, h)
 		}
-		
+
 		// Write data
 		for r, row := range data {
 			for cIdx, h := range headers {
@@ -1068,7 +1108,7 @@ func (s *Service) exportData(c *gin.Context, data []map[string]interface{}, form
 				f.SetCellValue(sheet, cell, val)
 			}
 		}
-		
+
 		f.SetActiveSheet(index)
 		c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 		c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.xlsx", filename))
@@ -1263,4 +1303,3 @@ func (s *Service) handleSNSRaw(c *gin.Context, username string, limit, offset in
 		c.Writer.Flush()
 	}
 }
-

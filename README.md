@@ -1,20 +1,81 @@
-# chatlog_alpha
+# chatlog-plus
 
-原 [chatlog](https://github.com/sjzar/chatlog) 项目的二开版本，导入自 [xiaofeng2042 的分支](https://github.com/xiaofeng2042/chatlog)，以防止上游删库后分支被自动删除。
+`chatlog-plus` 是基于原 [chatlog](https://github.com/sjzar/chatlog) 持续维护的增强版本。这个仓库的目标不是重新发明一套协议，而是在尽量保持原有 HTTP / MCP / CLI 用法不变的前提下，把真实微信 v4 场景里最容易断的链路补稳。
 
-未经修改的源代码在 [main 分支](https://github.com/CJYKK/chatlog_backup/tree/main)，本人不对代码中的任何内容负责。
+目前这条增强线主要解决 4 类问题：
 
-感谢 [wx_key](https://github.com/ycccccccy/wx_key) 项目提供的解密源码
+- 给前端、脚本和调试面板提供可调用的 `action` 接口
+- 保持 `wx_key.dll` 在管理员模式下继续可用
+- 修复 `recordInfo`（笔记、合并转发）内部媒体的真实路径解析
+- 在不破坏旧字段的前提下，补充更适合后端消费的代理字段
 
-目前测试成功微信版本：4.1.5.30
+另外，当前仓库还包含一个本地自动化执行组件：
+
+- `pywechat_service`
+  - 用于驱动真实微信客户端 UI
+  - 提供图片/视频预取、合并聊天记录处理、笔记处理
+  - 提供讲述人开关与微信重启动作
+
+如果你是把它接到别的系统里，建议同时阅读：
+
+- 数据侧对外接口说明：[docs/external-api.md](./docs/external-api.md)
+- 本地 UI 自动化服务接口说明：[docs/pywechat-service-api.md](./docs/pywechat-service-api.md)
+
+原始基础代码可参考 [chatlog_backup](https://github.com/CJYKK/chatlog_backup/tree/main)。
+
+感谢 [wx_key](https://github.com/ycccccccy/wx_key) 项目提供的解密源码。
+
+目前测试通过的微信版本：`4.1.5.30`
 
 ## 重要提示
-请务必把dll文件放在exe可执行文件同目录下的lib/windows_x64文件夹下
-# 如发布页wx_key1.dll工作不正常，请尝试使用wx_key2.dll
 
-请务必使用重启获取秘钥，而不是直接点击解密数据
+- `wx_key.dll` 必须放在可执行文件同目录下的 `lib/windows_x64` 中
+- 如果发布页里的 `wx_key1.dll` 表现不稳定，可以换用 `wx_key2.dll`
+- 获取 Data Key 时，优先使用“重启并获取密钥”，不要直接点“解密数据”
 
 ## 更新日志
+
+### 2026年4月2日
+- **修复进程检测导致的严重内存泄漏**：
+  - **问题现象**：chatlog 运行时内存占用从正常的 40-60MB 飙升至 1.2GB，CPU 占用也显著升高。
+  - **根因定位**：`FindProcesses` 每 3 秒被 TUI 刷新循环调用。微信 V4 基于 Chromium 架构，会派生多个子进程（`--type=wxocr`、`--type=wxplayer`、`--type=wxutility` 等），每个子进程持有大量文件句柄。1月22日的提交将 `getProcessInfo`（内含 `p.OpenFiles()` 枚举所有句柄）的调用移到了 cmdline 过滤之前，导致每 3 秒对所有子进程执行昂贵的句柄枚举操作，内存持续累积。
+  - **修复方案**：
+    1. 使用 `--type=` 精确过滤 Chromium 子进程，在调用 `getProcessInfo` 之前拦截（微信主进程可能带 `--scene=` 等参数，但不会有 `--type=`）
+    2. 对主进程检测结果添加 PID 缓存，避免重复调用 `p.OpenFiles()`
+    3. 未登录（无 DataDir）的缓存 30 秒后自动重新检测，覆盖用户登录场景
+  - **效果**：稳态内存恢复至 ~50MB，稳态 CPU 恢复至 ~0.6%
+- **接口文档修正**：
+  - 修正 `set` 命令的 `--wal-enabled` 和 `--auto-decompress-debounce` flag 说明与实际代码一致
+
+### 2026年3月21日
+- **新增规范化代理字段**
+  - 普通多媒体消息会在 `contents` 中补充 `proxyType`、`proxyKey`、`proxyUrl`、`resolved`、`keySource`
+  - 笔记、合并转发等 `recordInfo` 消息会在 `contents.assets[]` 中给出逐项资产清单，适合后端直接消费
+- **补齐转发文件的 md5 恢复链**
+  - 对 `DataType=8` 且 `FullMD5` 为空的内部文件，新增 `DataTitle + DataSize -> hardlink -> md5` 的补偿解析
+  - 这样在文件已经落盘的机器上，这类内部文件也能回到统一的 `/file/<md5>` 代理形式
+- **继续保持兼容**
+  - 老字段没有删除，原有 `contents.md5`、`contents.path`、`recordInfo` 结构都还在
+  - 旧的后端拼接逻辑仍然可以作为降级方案，新系统则可以优先消费 `proxyUrl` 和 `assets[]`
+
+### 2026年3月20日
+- **补上可调用的 action 接口**
+  - 新增 `chatlog.exe action ...`，标准输出为 JSON Lines，方便前端、脚本和调试工具调用
+  - 同时补齐了账号状态输出、历史配置回填，以及重启取 key 时的上下文延续
+- **把 key 获取链路收稳**
+  - `wx_key.dll` 支持多路径定位，继续兼容管理员模式
+  - Data Key 获取流程做了优先级收敛，减少重启取 key 时的误判分支
+- **修复 recordInfo 内部媒体的代理路径**
+  - 笔记、合并转发里的 `video`、`file` 不再误走普通聊天路径
+  - 现在会根据 v4 hardlink 的 `type`、`dir1`、`dir2`、`extra_buffer` 还原 `Rec` 目录下的真实媒体位置
+  - 笔记 `.htm` 包体也已经能映射到正确的 `Dat` 路径
+  - 图片查找补齐了多种常见落盘形态，包括无后缀、`.jpg`、`.png`、`.gif`、`.bmp`、`_t`、`.dat`
+- **对外协议保持原样**
+  - 继续使用原版风格的代理入口：
+    - `/image/<md5>`
+    - `/video/<md5>`
+    - `/file/<md5>`
+  - 是否已经下载到本地，不再作为是否生成链接的前置条件；下载态交给下游自己处理
 
 ### 2026年1月25日
 - **CI/CD 优化**：

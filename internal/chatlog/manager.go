@@ -54,7 +54,7 @@ func (m *Manager) Run(configPath string) error {
 
 	m.http = http.NewService(m.ctx, m.db)
 
-	m.ctx.WeChatInstances = m.wechat.GetWeChatInstances()
+	m.ctx.WeChatInstances = m.loadWeChatInstances()
 	if len(m.ctx.WeChatInstances) >= 1 {
 		m.ctx.SwitchCurrent(m.ctx.WeChatInstances[0])
 	}
@@ -199,8 +199,10 @@ func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 
 	pid := m.ctx.Current.PID
 	exePath := m.ctx.Current.ExePath
+	previousAccount := m.ctx.Account
+	previousImgKey := m.ctx.ImgKey
+	previousDataDir := m.ctx.DataDir
 
-	// 1. Terminate the process
 	if onStatus != nil {
 		onStatus("正在结束微信进程...")
 	}
@@ -213,10 +215,9 @@ func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 		return fmt.Errorf("failed to kill process with PID %d: %w", pid, err)
 	}
 
-	// 2. Wait for the process to disappear
 	log.Info().Msg("Waiting for WeChat process to terminate...")
-	for i := 0; i < 10; i++ { // Wait for max 10 seconds
-		instances := m.wechat.GetWeChatInstances()
+	for i := 0; i < 10; i++ {
+		instances := m.loadWeChatInstances()
 		found := false
 		for _, inst := range instances {
 			if inst.PID == pid {
@@ -230,7 +231,6 @@ func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 		time.Sleep(1 * time.Second)
 	}
 
-	// 3. Restart WeChat
 	if onStatus != nil {
 		onStatus("正在重启微信...")
 	}
@@ -240,15 +240,13 @@ func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 		return fmt.Errorf("failed to restart WeChat: %w", err)
 	}
 
-	// 4. Wait for the new process to appear.
 	if onStatus != nil {
 		onStatus("正在等待新进程启动...")
 	}
 	log.Info().Msg("Waiting for new WeChat process to start...")
 	var newInstance *iwechat.Account
-	for i := 0; i < 30; i++ { // Wait for max 30 seconds
-		instances := m.wechat.GetWeChatInstances()
-		// Try to find a new instance. A new instance is one with a different PID.
+	for i := 0; i < 30; i++ {
+		instances := m.loadWeChatInstances()
 		for _, inst := range instances {
 			if inst.PID != pid && inst.ExePath == exePath {
 				newInstance = inst
@@ -266,19 +264,22 @@ func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 	}
 	log.Info().Msgf("Found new WeChat process with PID %d", newInstance.PID)
 
-	// 5. Switch to the new instance
+	if previousAccount != "" && !strings.HasPrefix(previousAccount, "未登录微信_") {
+		newInstance.Name = previousAccount
+	}
+	if previousImgKey != "" {
+		newInstance.ImgKey = previousImgKey
+	}
+	if previousDataDir != "" && newInstance.DataDir == "" {
+		newInstance.DataDir = previousDataDir
+	}
 	m.ctx.SwitchCurrent(newInstance)
 
-	// 6. Get the key
-	// 增加重试逻辑：微信刚启动时可能DLL未加载完成导致Hook失败，需要等待
 	log.Info().Msg("Getting key from new WeChat process...")
-
-	// 使用携带回调的 context
 	ctx := context.WithValue(context.Background(), "status_callback", onStatus)
+	ctx = context.WithValue(ctx, "prefer_data_key_only", true)
 
 	var key, imgKey string
-
-	// 初始化截止时间 (30秒)
 	deadline := time.Now().Add(30 * time.Second)
 
 	for {
@@ -286,37 +287,24 @@ func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 			onStatus("正在等待微信初始化...")
 		}
 
-		// 尝试获取密钥 (会尝试初始化DLL)
 		key, imgKey, err = m.ctx.Current.GetKey(ctx)
-
-		// 如果成功，跳出循环
-		// 注意：GetKey 成功意味着 Hook 安装成功且已经获取到了密钥
-		// 但实际上 DLL 模式下，Extract 会在 Hook 安装成功后阻塞轮询。
-		// 所以如果这里返回 nil，说明已经完成了整个流程。
 		if err == nil {
 			break
 		}
-
-		// 如果超时，且包含特定错误，则退出
 		if time.Now().After(deadline) {
 			return fmt.Errorf("获取密钥超时: %v", err)
 		}
 
-		// 检查错误类型，决定是否重试
-		// 如果是初始化失败（例如微信模块未加载），则重试
-		// 如果是 "wechat process not found" 等临时错误，也重试
-		// 如果是 pollKeys 内部的超时（30s），说明 Hook 成功但用户未操作，此时不应该重试，
-		// 但 pollKeys 内部超时会返回错误，这里会捕获。
-		// 不过 pollKeys 耗时 30s，如果走到这里说明已经等了 30s，外层 deadline 也会触发。
-		
-		// 只有快速失败（初始化错误）才需要 fast retry
 		log.Debug().Err(err).Msg("获取密钥尝试失败，准备重试")
-		
 		time.Sleep(1 * time.Second)
 	}
 
-	m.ctx.DataKey = key
-	m.ctx.ImgKey = imgKey
+	if key != "" {
+		m.ctx.DataKey = key
+	}
+	if imgKey != "" {
+		m.ctx.ImgKey = imgKey
+	}
 	m.ctx.Refresh()
 	m.ctx.UpdateConfig()
 
@@ -420,8 +408,6 @@ func (m *Manager) GetLatestSession() (*model.Session, error) {
 	return nil, nil
 }
 
-
-
 func (m *Manager) CommandKey(configPath string, pid int, force bool, showXorKey bool) (string, error) {
 
 	var err error
@@ -432,7 +418,7 @@ func (m *Manager) CommandKey(configPath string, pid int, force bool, showXorKey 
 
 	m.wechat = wechat.NewService(m.ctx)
 
-	m.ctx.WeChatInstances = m.wechat.GetWeChatInstances()
+	m.ctx.WeChatInstances = m.loadWeChatInstances()
 	if len(m.ctx.WeChatInstances) == 0 {
 		return "", fmt.Errorf("wechat process not found")
 	}
@@ -597,4 +583,3 @@ func (m *Manager) CommandHTTPServer(configPath string, cmdConf map[string]any) e
 
 	return m.http.ListenAndServe()
 }
-

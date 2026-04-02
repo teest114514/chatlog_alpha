@@ -121,6 +121,10 @@ func (s *Service) GetMedia(_type string, key string) (*model.Media, error) {
 	return s.db.GetMedia(_type, key)
 }
 
+func (s *Service) GetMediaByName(_type string, name string, size int64) (*model.Media, error) {
+	return s.db.GetMediaByName(_type, name, size)
+}
+
 func (s *Service) GetDecryptedDBs() (map[string][]string, error) {
 	if s.db == nil {
 		return nil, nil

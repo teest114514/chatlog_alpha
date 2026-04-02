@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/klauspost/compress/zstd"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog/log"
-	"github.com/klauspost/compress/zstd"
 
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
@@ -670,33 +670,19 @@ func (ds *DataSource) GetMedia(ctx context.Context, _type string, key string) (*
 		return nil, errors.ErrKeyEmpty
 	}
 
-	var table string
-	switch _type {
-	case "image":
-		table = "image_hardlink_info_v3"
-		// 4.1.0 版本开始使用 v4 表
-		if !ds.IsExist(Media, table) {
-			table = "image_hardlink_info_v4"
-		}
-	case "video":
-		table = "video_hardlink_info_v3"
-		if !ds.IsExist(Media, table) {
-			table = "video_hardlink_info_v4"
-		}
-	case "file":
-		table = "file_hardlink_info_v3"
-		if !ds.IsExist(Media, table) {
-			table = "file_hardlink_info_v4"
-		}
-	case "voice":
+	if _type == "voice" {
 		return ds.GetVoice(ctx, key)
-	default:
-		return nil, errors.MediaTypeUnsupported(_type)
+	}
+
+	table, err := ds.mediaTableForType(_type)
+	if err != nil {
+		return nil, err
 	}
 
 	query := fmt.Sprintf(`
 	SELECT
 		f.md5,
+		f.type,
 		f.file_name,
 		f.file_size,
 		f.modify_time,
@@ -711,7 +697,91 @@ func (ds *DataSource) GetMedia(ctx context.Context, _type string, key string) (*
 		dir2id d2 ON d2.rowid = f.dir2
 	`, table)
 	query += " WHERE f.md5 = ? OR f.file_name LIKE ? || '%'"
+	switch _type {
+	case "image":
+		query += " ORDER BY CASE WHEN f.type IN (2,4) THEN 0 ELSE 1 END, LENGTH(f.file_name), f._rowid_"
+	case "video":
+		query += " ORDER BY CASE WHEN f.type = 3 THEN 0 WHEN f.type = 5 THEN 1 ELSE 2 END, f._rowid_"
+	case "file":
+		query += " ORDER BY CASE WHEN f.type = 1 THEN 0 WHEN f.type = 6 THEN 1 ELSE 2 END, f._rowid_"
+	}
 	args := []interface{}{key, key}
+
+	return ds.queryMedia(ctx, _type, query, args...)
+}
+
+func (ds *DataSource) GetMediaByName(ctx context.Context, _type string, name string, size int64) (*model.Media, error) {
+	if name == "" {
+		return nil, errors.ErrKeyEmpty
+	}
+
+	if _type == "voice" {
+		return nil, errors.MediaTypeUnsupported(_type)
+	}
+
+	table, err := ds.mediaTableForType(_type)
+	if err != nil {
+		return nil, err
+	}
+
+	query := fmt.Sprintf(`
+	SELECT
+		f.md5,
+		f.type,
+		f.file_name,
+		f.file_size,
+		f.modify_time,
+		f.extra_buffer,
+		IFNULL(d1.username,""),
+		IFNULL(d2.username,"")
+	FROM
+		%s f
+	LEFT JOIN
+		dir2id d1 ON d1.rowid = f.dir1
+	LEFT JOIN
+		dir2id d2 ON d2.rowid = f.dir2
+	WHERE
+		f.file_name = ?`, table)
+	args := []interface{}{name}
+	if size > 0 {
+		query += " AND f.file_size = ?"
+		args = append(args, size)
+	}
+	switch _type {
+	case "image":
+		query += " ORDER BY CASE WHEN f.type IN (2,4) THEN 0 ELSE 1 END, LENGTH(f.file_name), f._rowid_"
+	case "video":
+		query += " ORDER BY CASE WHEN f.type = 3 THEN 0 WHEN f.type = 5 THEN 1 ELSE 2 END, f._rowid_"
+	case "file":
+		query += " ORDER BY CASE WHEN f.type = 1 THEN 0 WHEN f.type = 6 THEN 1 ELSE 2 END, f._rowid_"
+	}
+
+	return ds.queryMedia(ctx, _type, query, args...)
+}
+
+func (ds *DataSource) mediaTableForType(_type string) (string, error) {
+	switch _type {
+	case "image":
+		if ds.IsExist(Media, "image_hardlink_info_v3") {
+			return "image_hardlink_info_v3", nil
+		}
+		return "image_hardlink_info_v4", nil
+	case "video":
+		if ds.IsExist(Media, "video_hardlink_info_v3") {
+			return "video_hardlink_info_v3", nil
+		}
+		return "video_hardlink_info_v4", nil
+	case "file":
+		if ds.IsExist(Media, "file_hardlink_info_v3") {
+			return "file_hardlink_info_v3", nil
+		}
+		return "file_hardlink_info_v4", nil
+	default:
+		return "", errors.MediaTypeUnsupported(_type)
+	}
+}
+
+func (ds *DataSource) queryMedia(ctx context.Context, _type string, query string, args ...interface{}) (*model.Media, error) {
 
 	// 执行查询
 	db, err := ds.dbm.GetDB(Media)
@@ -729,6 +799,7 @@ func (ds *DataSource) GetMedia(ctx context.Context, _type string, key string) (*
 		var mediaV4 model.MediaV4
 		err := rows.Scan(
 			&mediaV4.Key,
+			&mediaV4.HardLinkType,
 			&mediaV4.Name,
 			&mediaV4.Size,
 			&mediaV4.ModifyTime,
@@ -741,11 +812,7 @@ func (ds *DataSource) GetMedia(ctx context.Context, _type string, key string) (*
 		}
 		mediaV4.Type = _type
 		media = mediaV4.Wrap()
-
-		// 优先返回高清图
-		if _type == "image" && strings.HasSuffix(mediaV4.Name, "_h.dat") {
-			break
-		}
+		break
 	}
 
 	if media == nil {
@@ -907,7 +974,7 @@ func (ds *DataSource) GetTableData(group, file, table string, limit, offset int,
 	// 2. Build Query
 	query := fmt.Sprintf("SELECT * FROM \"%s\"", table)
 	var args []interface{}
-	
+
 	if keyword != "" && len(columns) > 0 {
 		var conditions []string
 		for _, col := range columns {
@@ -916,7 +983,7 @@ func (ds *DataSource) GetTableData(group, file, table string, limit, offset int,
 		}
 		query += " WHERE " + strings.Join(conditions, " OR ")
 	}
-	
+
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 
 	rows, err := db.Query(query, args...)
@@ -1105,24 +1172,24 @@ func (ds *DataSource) GetSNSTimeline(ctx context.Context, username string, limit
 		if err != nil {
 			// 如果解析失败，返回原始数据
 			result = append(result, map[string]interface{}{
-				"tid":          tid,
-				"user_name":    userName,
-				"content":      content,
+				"tid":           tid,
+				"user_name":     userName,
+				"content":       content,
 				"pack_info_buf": packInfoBuf,
-				"parse_error":  err.Error(),
+				"parse_error":   err.Error(),
 			})
 			continue
 		}
 
 		// 转换为 map[string]interface{}
 		postMap := map[string]interface{}{
-			"tid":            tid,
-			"user_name":      userName,
-			"nickname":       parsedPost.NickName,
-			"create_time":    parsedPost.CreateTime,
+			"tid":             tid,
+			"user_name":       userName,
+			"nickname":        parsedPost.NickName,
+			"create_time":     parsedPost.CreateTime,
 			"create_time_str": parsedPost.CreateTimeStr,
-			"content_desc":   parsedPost.ContentDesc,
-			"content_type":   parsedPost.ContentType,
+			"content_desc":    parsedPost.ContentDesc,
+			"content_type":    parsedPost.ContentType,
 		}
 
 		if parsedPost.Location != nil {

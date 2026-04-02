@@ -3,6 +3,7 @@ package model
 import (
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 type MediaV4 struct {
@@ -14,6 +15,7 @@ type MediaV4 struct {
 	Name         string `json:"name"`
 	Size         int64  `json:"size"`
 	ModifyTime   int64  `json:"modifyTime"`
+	HardLinkType int    `json:"-"`
 }
 
 func (m *MediaV4) Wrap() *Media {
@@ -21,19 +23,34 @@ func (m *MediaV4) Wrap() *Media {
 	var path string
 	switch m.Type {
 	case "image":
-		// Clean extra_buffer: extract only alphanumeric characters
-		extraBuffer := m.cleanExtraBuffer(m.ExtraBuffer)
-		if extraBuffer != "" {
-			// Path with Rec/{extra_buffer}: msg/attach/{Dir1}/{Dir2}/Rec/{extraBuffer}/Img/{Name}
-			path = filepath.Join("msg", "attach", m.Dir1, m.Dir2, "Rec", extraBuffer, "Img", m.Name)
+		extraParts := m.extraBufferParts()
+		if len(extraParts) > 0 {
+			path = filepath.Join("msg", "attach", m.Dir1, m.Dir2, "Rec", extraParts[0], "Img", m.Name)
 		} else {
-			// Fallback to old path format: msg/attach/{Dir1}/{Dir2}/Img/{Name}
 			path = filepath.Join("msg", "attach", m.Dir1, m.Dir2, "Img", m.Name)
 		}
 	case "video":
-		path = filepath.Join("msg", "video", m.Dir1, m.Name)
+		extraParts := m.extraBufferParts()
+		if m.HardLinkType == 5 && len(extraParts) > 0 {
+			path = filepath.Join("msg", "attach", m.Dir1, m.Dir2, "Rec", extraParts[0], "V", m.Name)
+		} else {
+			path = filepath.Join("msg", "video", m.Dir1, m.Name)
+		}
 	case "file":
-		path = filepath.Join("msg", "file", m.Dir1, m.Name)
+		extraParts := m.extraBufferParts()
+		if m.HardLinkType == 6 && len(extraParts) > 0 {
+			dirName := "F"
+			if filepath.Ext(m.Name) == "" {
+				dirName = "Dat"
+			}
+			if len(extraParts) > 1 {
+				path = filepath.Join("msg", "attach", m.Dir1, m.Dir2, "Rec", extraParts[0], dirName, extraParts[1], m.Name)
+			} else {
+				path = filepath.Join("msg", "attach", m.Dir1, m.Dir2, "Rec", extraParts[0], dirName, m.Name)
+			}
+		} else {
+			path = filepath.Join("msg", "file", m.Dir1, m.Name)
+		}
 	}
 
 	return &Media{
@@ -46,20 +63,24 @@ func (m *MediaV4) Wrap() *Media {
 	}
 }
 
-// cleanExtraBuffer extracts only alphanumeric characters from extra_buffer
-func (m *MediaV4) cleanExtraBuffer(extraBuffer string) string {
-	if extraBuffer == "" {
-		return ""
+// extraBufferParts extracts ASCII-like segments from extra_buffer.
+// v4 hardlink rows store record subdirectories and, for some files, nested indexes here.
+func (m *MediaV4) extraBufferParts() []string {
+	if m.ExtraBuffer == "" {
+		return nil
 	}
 
-	// Remove all non-alphanumeric characters
-	re := regexp.MustCompile(`[^a-zA-Z0-9]`)
-	cleaned := re.ReplaceAllString(extraBuffer, "")
-
-	// Only return if we have meaningful content
-	if cleaned != "" {
-		return cleaned
+	re := regexp.MustCompile(`[a-zA-Z0-9]+`)
+	matches := re.FindAllString(m.ExtraBuffer, -1)
+	if len(matches) == 0 {
+		return nil
 	}
 
-	return ""
+	parts := make([]string, 0, len(matches))
+	for _, part := range matches {
+		if strings.TrimSpace(part) != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
 }

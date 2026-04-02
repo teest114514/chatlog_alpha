@@ -28,6 +28,7 @@ type DataSource interface {
 
 	// 媒体
 	GetMedia(ctx context.Context, _type string, key string) (*model.Media, error)
+	GetMediaByName(ctx context.Context, _type string, name string, size int64) (*model.Media, error)
 
 	// 朋友圈
 	GetSNSTimeline(ctx context.Context, username string, limit, offset int) ([]map[string]interface{}, error)
