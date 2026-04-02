@@ -48,9 +48,9 @@ type Context struct {
 	HTTPAddr    string
 
 	// 自动解密
-	AutoDecrypt bool
-	LastSession time.Time
-	WalEnabled  bool
+	AutoDecrypt         bool
+	LastSession         time.Time
+	WalEnabled          bool
 	AutoDecryptDebounce int
 
 	// 当前选中的微信实例
@@ -268,6 +268,16 @@ func (c *Context) SetImgKey(key string) {
 	c.UpdateConfig()
 }
 
+func (c *Context) SetDataKey(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.DataKey == key {
+		return
+	}
+	c.DataKey = key
+	c.UpdateConfig()
+}
+
 func (c *Context) SetAutoDecrypt(enabled bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -302,18 +312,18 @@ func (c *Context) SetAutoDecryptDebounce(debounce int) {
 func (c *Context) UpdateConfig() {
 
 	pconf := conf.ProcessConfig{
-		Type:        "wechat",
-		Account:     c.Account,
-		Platform:    c.Platform,
-		Version:     c.Version,
-		FullVersion: c.FullVersion,
-		DataDir:     c.DataDir,
-		DataKey:     c.DataKey,
-		ImgKey:      c.ImgKey,
-		WorkDir:     c.WorkDir,
-		HTTPEnabled: c.HTTPEnabled,
-		HTTPAddr:    c.HTTPAddr,
-		WalEnabled:  c.WalEnabled,
+		Type:                "wechat",
+		Account:             c.Account,
+		Platform:            c.Platform,
+		Version:             c.Version,
+		FullVersion:         c.FullVersion,
+		DataDir:             c.DataDir,
+		DataKey:             c.DataKey,
+		ImgKey:              c.ImgKey,
+		WorkDir:             c.WorkDir,
+		HTTPEnabled:         c.HTTPEnabled,
+		HTTPAddr:            c.HTTPAddr,
+		WalEnabled:          c.WalEnabled,
 		AutoDecryptDebounce: c.AutoDecryptDebounce,
 	}
 

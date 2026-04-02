@@ -100,7 +100,8 @@ func (s *Service) GetDataKey(info *wechat.Account) (string, error) {
 		return "", fmt.Errorf("no WeChat instance selected")
 	}
 
-	key, _, err := info.GetKey(context.Background())
+	ctx := context.WithValue(context.Background(), "prefer_data_key_only", true)
+	key, _, err := info.GetKey(ctx)
 	if err != nil {
 		return "", err
 	}

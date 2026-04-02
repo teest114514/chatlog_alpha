@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -34,18 +35,49 @@ var (
 
 // DLLExtractor 使用wx_key.dll的密钥提取器
 type DLLExtractor struct {
-	validator *decrypt.Validator
-	mu        sync.Mutex
+	validator   *decrypt.Validator
+	mu          sync.Mutex
 	initialized bool
-	pid        uint32
-	lastKey   string // 记录上次获取的密钥，用于简单去重
-	logger    *util.DLLLogger // DLL日志记录器
+	pid         uint32
+	lastKey     string          // 记录上次获取的密钥，用于简单去重
+	logger      *util.DLLLogger // DLL日志记录器
+}
+
+func resolveDLLPath() string {
+	candidates := make([]string, 0, 6)
+
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates = append(candidates,
+			filepath.Join(exeDir, "lib", "windows_x64", "wx_key.dll"),
+			filepath.Join(exeDir, "wx_key.dll"),
+			filepath.Join(filepath.Dir(exeDir), "lib", "windows_x64", "wx_key.dll"),
+			filepath.Join(filepath.Dir(exeDir), "research", "wx_key.dll"),
+		)
+	}
+
+	if workDir, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(workDir, "lib", "windows_x64", "wx_key.dll"),
+			filepath.Join(workDir, "research", "wx_key.dll"),
+		)
+	}
+
+	candidates = append(candidates, "lib/windows_x64/wx_key.dll")
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	return "lib/windows_x64/wx_key.dll"
 }
 
 // init 初始化DLL函数
 func init() {
-	// 加载DLL - 使用相对路径
-	dllPath := "lib/windows_x64/wx_key.dll"
+	// 优先按可执行文件目录定位，避免工作目录变化导致 DLL 丢失。
+	dllPath := resolveDLLPath()
 	modwxkey = windows.NewLazyDLL(dllPath)
 
 	// 尝试加载DLL，检查是否可用
@@ -109,7 +141,7 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 		}
 	}
 	e.mu.Unlock() // 初始化完成后解锁，允许并行执行
-	
+
 	// DLL初始化成功，检查是否有回调需要通知
 	if cb, ok := ctx.Value("status_callback").(func(string)); ok {
 		cb("Hook安装成功（已完成DLL注入），如未登录请登录微信；然后打开任意聊天窗口以触发密钥加载...")
@@ -117,10 +149,11 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 
 	// 准备并行执行
 	var (
-		finalDataKey string
-		finalImgKey  string
-		keyMu        sync.Mutex // 保护结果更新
-		wg           sync.WaitGroup
+		finalDataKey         string
+		finalImgKey          string
+		keyMu                sync.Mutex
+		wg                   sync.WaitGroup
+		preferDataKeyOnly, _ = ctx.Value("prefer_data_key_only").(bool)
 	)
 
 	// 创建可取消的上下文
@@ -144,21 +177,23 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 			log.Info().Msgf("通过 %s 获取到图片密钥", source)
 		}
 
-		// 检查是否所有需要的密钥都已获取
-		// 当前仅支持 V4：需要 DataKey + ImgKey
 		if updated {
-			if finalDataKey != "" && finalImgKey != "" {
+			if preferDataKeyOnly {
+				if finalDataKey != "" {
+					log.Info().Msg("已获取数据库密钥，提前结束轮询")
+					cancel()
+				}
+			} else if finalDataKey != "" && finalImgKey != "" {
 				log.Info().Msg("已获取所有所需密钥，提前结束轮询")
 				cancel()
 			}
 		}
 	}
-
 	// 任务 1: DLL 轮询 (运行在Goroutine中)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		
+
 		// DLL操作需要持有锁以保护状态
 		e.mu.Lock()
 		defer e.mu.Unlock()
@@ -168,7 +203,7 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 		dk, ik, _ := e.pollKeys(ctx, proc.Version, func(d, i string) {
 			updateKeys(d, i, "DLL")
 		})
-		
+
 		// 轮询结束后的最终更新（防止遗漏，虽然回调应该覆盖了大部分情况）
 		if dk != "" || ik != "" {
 			updateKeys(dk, ik, "DLL")
@@ -176,7 +211,7 @@ func (e *DLLExtractor) Extract(ctx context.Context, proc *model.Process) (string
 	}()
 
 	// 任务 2: 原生内存扫描 (仅V4版本，运行在Goroutine中)
-	if proc.Version == 4 {
+	if proc.Version == 4 && !preferDataKeyOnly {
 		// 注意：这里不再依赖“调用时刻的 proc.DataDir/validator 状态”来决定是否启动扫描。
 		// 原因：DLL 支持用户在获取过程中登录，而 DataDir 往往在登录后才可通过打开的 DB 文件推导出来。
 		// 我们在协程中按 PID 轮询解析 DataDir，就绪后再启动 V4 扫描器；扫描器内部会等待 *_t.dat 样本就绪，避免白跑。

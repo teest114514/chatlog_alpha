@@ -23,6 +23,8 @@ const (
 )
 
 func (e *V4Extractor) Extract(ctx context.Context, proc *model.Process) (string, string, error) {
+	statusCallback, _ := ctx.Value("status_callback").(func(string))
+
 	// 图片密钥扫描强依赖 dataDir 以及验证样本（*_t.dat / 模板文件），需要登录成功并浏览图片后才能就绪。
 	// 因此：dataDir 未就绪时直接返回，让上层负责等待/重试，避免启动无效内存扫描。
 	if proc.DataDir == "" {
@@ -53,6 +55,9 @@ func (e *V4Extractor) Extract(ctx context.Context, proc *model.Process) (string,
 
 			// 样本仍未就绪：提示用户打开图片触发缓存生成
 			if e.validator == nil || !e.validator.ImgKeyReady() {
+				if statusCallback != nil && (waitTick == 0 || waitTick%5 == 0) {
+					statusCallback("图片验证样本未就绪，请在微信中打开任意图片并稍候...")
+				}
 				if waitTick == 0 || waitTick%5 == 0 {
 					msg := "图片密钥验证样本未就绪：请确保微信已登录，并打开任意图片以生成缓存文件（*_t.dat）后再继续"
 					log.Info().Msg(msg)
@@ -75,9 +80,12 @@ func (e *V4Extractor) Extract(ctx context.Context, proc *model.Process) (string,
 		scanRound++
 		// Create context to control all goroutines for THIS round
 		scanCtx, cancel := context.WithCancel(ctx)
-		
+
 		// 记录提示日志
-		if scanRound == 1 || scanRound % 5 == 0 {
+		if scanRound == 1 || scanRound%5 == 0 {
+			if statusCallback != nil {
+				statusCallback(fmt.Sprintf("正在进行第 %d 轮图片解压密钥内存扫描...", scanRound))
+			}
 			msg := fmt.Sprintf("正在进行第 %d 轮内存扫描... 请打开任意图片以触发密钥加载", scanRound)
 			log.Info().Msg(msg)
 			if e.logger != nil {
@@ -155,7 +163,7 @@ func (e *V4Extractor) Extract(ctx context.Context, proc *model.Process) (string,
 				}
 			}
 		}
-		
+
 		cancel() // Ensure cleanup of this round
 
 		// If we are here, round finished but no key found.
@@ -238,7 +246,7 @@ func (e *V4Extractor) worker(ctx context.Context, handle windows.Handle, memoryC
 
 	// Track found keys
 	var imgKey string // dataKey removed
-	
+
 	// Logging flags and counters
 	candidateCount := 0
 
@@ -308,16 +316,16 @@ func (e *V4Extractor) worker(ctx context.Context, handle windows.Handle, memoryC
 
 					// Found a candidate 32-byte string
 					candidateCount++
-					if candidateCount % 5000 == 0 {
+					if candidateCount%5000 == 0 {
 						msg := fmt.Sprintf("正在扫描图片密钥... 已检查 %d 个候选字符串", candidateCount)
 						log.Debug().Msg(msg)
 						if e.logger != nil {
 							e.logger.LogDebug(msg)
 						}
 					}
-					
+
 					candidate := memory[i : i+32]
-					
+
 					// Validate using existing validator (which now supports the *_t.dat check)
 					// We pass the full 32 bytes, validator takes first 16
 					if e.validator.ValidateImgKey(candidate) {
@@ -337,7 +345,7 @@ func (e *V4Extractor) worker(ctx context.Context, handle windows.Handle, memoryC
 								return
 							}
 						}
-						
+
 						// Skip past this key
 						i += 32
 					}
@@ -359,7 +367,7 @@ func (e *V4Extractor) validateKey(handle windows.Handle, addr uint64) (string, b
 	}
 
 	// Data Key validation removed.
-	
+
 	// Only check if it's a valid image key
 	if e.validator.ValidateImgKey(keyData) {
 		return hex.EncodeToString(keyData[:16]), true // Image key

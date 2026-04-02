@@ -162,15 +162,16 @@ type RecordItem struct {
 
 // RecordInfo 表示聊天记录信息
 type RecordInfo struct {
-	XMLName       xml.Name `xml:"recordinfo"`
-	FromScene     string   `xml:"fromscene,omitempty"`
-	FavUsername   string   `xml:"favusername,omitempty"`
-	FavCreateTime string   `xml:"favcreatetime,omitempty"`
-	IsChatRoom    string   `xml:"isChatRoom,omitempty"`
-	Title         string   `xml:"title,omitempty"`
-	Desc          string   `xml:"desc,omitempty"`
-	Info          string   `xml:"info,omitempty"`
-	DataList      DataList `xml:"datalist,omitempty"`
+	XMLName       xml.Name      `xml:"recordinfo"`
+	FromScene     string        `xml:"fromscene,omitempty"`
+	FavUsername   string        `xml:"favusername,omitempty"`
+	FavCreateTime string        `xml:"favcreatetime,omitempty"`
+	IsChatRoom    string        `xml:"isChatRoom,omitempty"`
+	Title         string        `xml:"title,omitempty"`
+	Desc          string        `xml:"desc,omitempty"`
+	Info          string        `xml:"info,omitempty"`
+	DataList      DataList      `xml:"datalist,omitempty"`
+	Assets        []RecordAsset `json:"assets,omitempty" xml:"-"`
 }
 
 // DataList 表示数据列表
@@ -221,6 +222,14 @@ type DataItem struct {
 	// 套娃合并转发
 	DataTitle string     `xml:"datatitle,omitempty"`
 	RecordXML *RecordXML `xml:"recordxml,omitempty"`
+
+	// Normalized fields for downstream consumers.
+	MD5       string `json:"md5,omitempty" xml:"-"`
+	ProxyType string `json:"proxyType,omitempty" xml:"-"`
+	ProxyKey  string `json:"proxyKey,omitempty" xml:"-"`
+	ProxyURL  string `json:"proxyUrl,omitempty" xml:"-"`
+	Resolved  bool   `json:"resolved" xml:"-"`
+	KeySource string `json:"keySource,omitempty" xml:"-"`
 }
 
 type DataItemLocation struct {
@@ -264,17 +273,29 @@ func (r *RecordInfo) String(_type, title, host string) string {
 		switch item.DataType {
 		case "2":
 			// 图片
-			buf.WriteString(fmt.Sprintf("  ![图片](http://%s/image/%s)\n", host, item.FullMD5))
+			if item.ProxyURL != "" {
+				buf.WriteString(fmt.Sprintf("  ![图片](%s)\n", item.ProxyURL))
+			} else {
+				buf.WriteString(fmt.Sprintf("  ![图片](http://%s/image/%s)\n", host, item.FullMD5))
+			}
 		case "4":
 			//视频
-			buf.WriteString(fmt.Sprintf("  ![视频](http://%s/video/%s)\n", host, item.FullMD5))
+			if item.ProxyURL != "" {
+				buf.WriteString(fmt.Sprintf("  ![视频](%s)\n", item.ProxyURL))
+			} else {
+				buf.WriteString(fmt.Sprintf("  ![视频](http://%s/video/%s)\n", host, item.FullMD5))
+			}
 		case "8":
 			// 文件
 			// FIXME 笔记的第一条是 htm 数据，暂时跳过处理
 			if item.DataFmt == ".htm" {
 				continue
 			}
-			buf.WriteString(fmt.Sprintf("  [文件|%s](http://%s/file/%s)\n", item.DataTitle, host, item.FullMD5))
+			if item.ProxyURL != "" {
+				buf.WriteString(fmt.Sprintf("  [文件|%s](%s)\n", item.DataTitle, item.ProxyURL))
+			} else {
+				buf.WriteString(fmt.Sprintf("  [文件|%s](http://%s/file/%s)\n", item.DataTitle, host, item.FullMD5))
+			}
 		case "5":
 			// Link
 			buf.WriteString(fmt.Sprintf("  [链接|%s](%s)\n", item.DataTitle, item.Link))

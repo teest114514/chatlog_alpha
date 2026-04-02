@@ -12,7 +12,7 @@ import (
 var Debug = false
 
 const (
-	WeChatV4       = "wechatv4"
+	WeChatV4 = "wechatv4"
 )
 
 const (
@@ -285,6 +285,7 @@ func (m *Message) ParseMediaInfo(data string) error {
 		}
 	}
 
+	m.RefreshProxyFields()
 	return nil
 }
 

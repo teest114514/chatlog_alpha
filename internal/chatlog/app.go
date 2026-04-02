@@ -98,16 +98,16 @@ func (a *App) Stop() {
 }
 
 func (a *App) updateMenuItemsState() {
-	// 查找并更新自动解密菜单项
+	// 查找并更新自动解压菜单项
 	for _, item := range a.menu.GetItems() {
-		// 更新自动解密菜单项
+		// 更新自动解压菜单项
 		if item.Index == 6 {
 			if a.ctx.AutoDecrypt {
-				item.Name = "停止自动解密"
-				item.Description = "停止监控数据目录更新，不再自动解密新增数据"
+				item.Name = "停止自动解压"
+				item.Description = "停止监控数据目录更新，不再自动解压新增数据"
 			} else {
-				item.Name = "开启自动解密"
-				item.Description = "监控数据目录更新，自动解密新增数据"
+				item.Name = "开启自动解压"
+				item.Description = "监控数据目录更新，自动解压新增数据"
 			}
 		}
 
@@ -148,6 +148,7 @@ func (a *App) refresh() {
 				// 获取微信实例
 				instances, err := a.m.wechat.GetWeChatInstancesWithError()
 				processErr = err
+				instances = hydrateAccountsFromHistory(instances, a.ctx.History, a.ctx.Account)
 				if err == nil && len(instances) > 0 {
 					// 找到微信进程，设置第一个为当前账号
 					a.ctx.SwitchCurrent(instances[0])
@@ -210,7 +211,7 @@ func (a *App) refresh() {
 				if sender == "" {
 					sender = session.UserName
 				}
-			a.footer.UpdateLatestMessage(sender, session.NTime.Format("15:04:05"), session.Content)
+				a.footer.UpdateLatestMessage(sender, session.NTime.Format("15:04:05"), session.Content)
 			}
 
 			a.Draw()
@@ -319,29 +320,29 @@ func (a *App) initMenu() {
 
 	decryptData := &menu.Item{
 		Index:       4,
-		Name:        "解密数据",
-		Description: "解密数据文件",
+		Name:        "解压数据",
+		Description: "解压数据文件",
 		Selected: func(i *menu.Item) {
-			// 创建一个没有按钮的模态框，显示"解密中..."
+			// 创建一个没有按钮的模态框，显示"解压中..."
 			modal := tview.NewModal().
-				SetText("解密中...")
+				SetText("解压中...")
 
 			a.mainPages.AddPage("modal", modal, true, true)
 			a.SetFocus(modal)
 
-			// 在后台执行解密操作
+			// 在后台执行解压操作
 			go func() {
-				// 执行解密
+				// 执行解压
 				err := a.m.DecryptDBFiles()
 
 				// 在主线程中更新UI
 				a.QueueUpdateDraw(func() {
 					if err != nil {
-						// 解密失败
-						modal.SetText("解密失败: " + err.Error())
+						// 解压失败
+						modal.SetText("解压失败: " + err.Error())
 					} else {
-						// 解密成功
-						modal.SetText("解密数据成功")
+						// 解压成功
+						modal.SetText("解压数据成功")
 					}
 
 					// 添加确认按钮
@@ -431,19 +432,19 @@ func (a *App) initMenu() {
 
 	autoDecrypt := &menu.Item{
 		Index:       6,
-		Name:        "开启自动解密",
-		Description: "自动解密新增的数据文件",
+		Name:        "开启自动解压",
+		Description: "自动解压新增的数据文件",
 		Selected: func(i *menu.Item) {
 			modal := tview.NewModal()
 
-			// 根据当前自动解密状态执行不同操作
+			// 根据当前自动解压状态执行不同操作
 			if !a.ctx.AutoDecrypt {
-				// 自动解密未开启，开启自动解密
-				modal.SetText("正在开启自动解密...")
+				// 自动解压未开启，开启自动解压
+				modal.SetText("正在开启自动解压...")
 				a.mainPages.AddPage("modal", modal, true, true)
 				a.SetFocus(modal)
 
-				// 在后台开启自动解密
+				// 在后台开启自动解压
 				go func() {
 					err := a.m.StartAutoDecrypt()
 
@@ -451,10 +452,10 @@ func (a *App) initMenu() {
 					a.QueueUpdateDraw(func() {
 						if err != nil {
 							// 开启失败
-							modal.SetText("开启自动解密失败: " + err.Error())
+							modal.SetText("开启自动解压失败: " + err.Error())
 						} else {
 							// 开启成功
-							modal.SetText("已开启自动解密")
+							modal.SetText("已开启自动解压")
 						}
 
 						// 更改菜单项名称
@@ -469,12 +470,12 @@ func (a *App) initMenu() {
 					})
 				}()
 			} else {
-				// 自动解密已开启，停止自动解密
-				modal.SetText("正在停止自动解密...")
+				// 自动解压已开启，停止自动解压
+				modal.SetText("正在停止自动解压...")
 				a.mainPages.AddPage("modal", modal, true, true)
 				a.SetFocus(modal)
 
-				// 在后台停止自动解密
+				// 在后台停止自动解压
 				go func() {
 					err := a.m.StopAutoDecrypt()
 
@@ -482,10 +483,10 @@ func (a *App) initMenu() {
 					a.QueueUpdateDraw(func() {
 						if err != nil {
 							// 停止失败
-							modal.SetText("停止自动解密失败: " + err.Error())
+							modal.SetText("停止自动解压失败: " + err.Error())
 						} else {
 							// 停止成功
-							modal.SetText("已停止自动解密")
+							modal.SetText("已停止自动解压")
 						}
 
 						// 更改菜单项名称
@@ -552,17 +553,17 @@ func (a *App) settingSelected(i *menu.Item) {
 		},
 		{
 			name:        "设置工作目录",
-			description: "配置数据解密后的存储目录",
+			description: "配置数据解压后的存储目录",
 			action:      a.settingWorkDir,
 		},
 		{
 			name:        "设置数据密钥",
-			description: "配置数据解密密钥",
+			description: "配置数据解压密钥",
 			action:      a.settingDataKey,
 		},
 		{
 			name:        "设置图片密钥",
-			description: "配置图片解密密钥",
+			description: "配置图片解压密钥",
 			action:      a.settingImgKey,
 		},
 		{
@@ -576,8 +577,8 @@ func (a *App) settingSelected(i *menu.Item) {
 			action:      a.settingWalEnabled,
 		},
 		{
-			name:        "设置自动解密去抖",
-			description: "配置自动解密触发间隔(ms)",
+			name:        "设置自动解压去抖",
+			description: "配置自动解压触发间隔(ms)",
 			action:      a.settingAutoDecryptDebounce,
 		},
 	}
@@ -765,7 +766,7 @@ func (a *App) settingWalEnabled() {
 }
 
 func (a *App) settingAutoDecryptDebounce() {
-	formView := form.NewForm("设置自动解密去抖")
+	formView := form.NewForm("设置自动解压去抖")
 
 	tempDebounceText := ""
 	if a.ctx.AutoDecryptDebounce > 0 {
@@ -817,7 +818,7 @@ func (a *App) selectAccountSelected(i *menu.Item) {
 	subMenu := menu.NewSubMenu("切换账号")
 
 	// 添加微信进程
-	instances := a.m.wechat.GetWeChatInstances()
+	instances := hydrateAccountsFromHistory(a.m.wechat.GetWeChatInstances(), a.ctx.History, a.ctx.Account)
 	if len(instances) > 0 {
 		// 添加实例标题
 		subMenu.AddItem(&menu.Item{
@@ -870,13 +871,13 @@ func (a *App) selectAccountSelected(i *menu.Item) {
 
 								if err != nil {
 									// 切换失败
-								a.showError(fmt.Errorf("切换账号失败: %v", err))
-							} else {
-								// 切换成功
-								a.showInfo("切换账号成功")
-								// 更新菜单状态
-								a.updateMenuItemsState()
-							}
+									a.showError(fmt.Errorf("切换账号失败: %v", err))
+								} else {
+									// 切换成功
+									a.showInfo("切换账号成功")
+									// 更新菜单状态
+									a.updateMenuItemsState()
+								}
 							})
 						}()
 					}
@@ -943,13 +944,13 @@ func (a *App) selectAccountSelected(i *menu.Item) {
 
 								if err != nil {
 									// 切换失败
-								a.showError(fmt.Errorf("切换账号失败: %v", err))
-							} else {
-								// 切换成功
-								a.showInfo("切换账号成功")
-								// 更新菜单状态
-								a.updateMenuItemsState()
-							}
+									a.showError(fmt.Errorf("切换账号失败: %v", err))
+								} else {
+									// 切换成功
+									a.showInfo("切换账号成功")
+									// 更新菜单状态
+									a.updateMenuItemsState()
+								}
 							})
 						}()
 					}

@@ -140,6 +140,10 @@ func (w *DB) GetMedia(_type string, key string) (*model.Media, error) {
 	return w.repo.GetMedia(context.Background(), _type, key)
 }
 
+func (w *DB) GetMediaByName(_type string, name string, size int64) (*model.Media, error) {
+	return w.repo.GetMediaByName(context.Background(), _type, name, size)
+}
+
 func (w *DB) SetCallback(group string, callback func(event fsnotify.Event) error) error {
 	return w.ds.SetCallback(group, callback)
 }
