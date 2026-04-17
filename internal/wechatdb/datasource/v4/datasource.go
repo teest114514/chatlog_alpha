@@ -179,9 +179,16 @@ func (ds *DataSource) initMessageDbs() error {
 
 // getDBInfosForTimeRange 获取时间范围内的数据库信息
 func (ds *DataSource) getDBInfosForTimeRange(startTime, endTime time.Time) []MessageDBInfo {
+	now := time.Now()
 	var dbs []MessageDBInfo
-	for _, info := range ds.messageInfos {
-		if info.StartTime.Before(endTime) && info.EndTime.After(startTime) {
+	for i, info := range ds.messageInfos {
+		dbEndTime := info.EndTime
+		// 最后一个数据库仍在接收新消息，动态使用当前时间 + 1小时作为 EndTime
+		// 避免 initMessageDbs 设置的静态 EndTime 过期导致查询失败
+		if i == len(ds.messageInfos)-1 {
+			dbEndTime = now.Add(time.Hour)
+		}
+		if info.StartTime.Before(endTime) && dbEndTime.After(startTime) {
 			dbs = append(dbs, info)
 		}
 	}

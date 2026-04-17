@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -76,9 +77,58 @@ func NewService(conf Config) *Service {
 	}
 }
 
+func (s *Service) clearWalState(dbFile string) {
+	s.mutex.Lock()
+	delete(s.walStates, dbFile)
+	s.mutex.Unlock()
+}
+
 // SetAutoDecryptErrorHandler sets the callback for auto decryption errors
 func (s *Service) SetAutoDecryptErrorHandler(handler func(error)) {
 	s.errorHandler = handler
+}
+
+// isFileLockedError checks if the error is a file locking error (temporary error that shouldn't stop the service)
+func isFileLockedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for Windows file locking errors
+	// ERROR_SHARING_VIOLATION (32): The process cannot access the file because it is being used by another process
+	// ERROR_LOCK_VIOLATION (33): The process cannot access the file because another process has locked a portion of the file
+	if errno, ok := err.(syscall.Errno); ok {
+		if errno == 32 || errno == 33 {
+			return true
+		}
+	}
+
+	// Check wrapped errors first (to get to the root cause)
+	if wrappedErr := errors.RootCause(err); wrappedErr != nil && wrappedErr != err {
+		if isFileLockedError(wrappedErr) {
+			return true
+		}
+	}
+
+	// Check error message for file locking indicators (works across platforms)
+	errMsg := strings.ToLower(err.Error())
+	fileLockIndicators := []string{
+		"the process cannot access the file",
+		"being used by another process",
+		"file is locked",
+		"access is denied",
+		"sharing violation",
+		"lock violation",
+		"resource temporarily unavailable", // Linux/Unix
+		"device or resource busy",         // Linux/Unix
+	}
+	for _, indicator := range fileLockIndicators {
+		if strings.Contains(errMsg, indicator) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // GetWeChatInstances returns all running WeChat instances
@@ -221,52 +271,97 @@ func (s *Service) waitAndProcess(dbFile string) {
 					}
 				}
 			}
+			// 核心逻辑：优先尝试 WAL 增量解密，失败则回退全量解密
 			if flags.sawDB {
 				if !s.conf.GetWalEnabled() || !workCopyExists {
+					// WAL 未开启或工作目录不存在 → 直接全量解密
 					if err := s.DecryptDBFile(dbFile); err != nil {
-						if s.errorHandler != nil {
+						if isFileLockedError(err) {
+							// 文件锁定错误：只记录警告，不停止服务
+							log.Warn().Err(err).Msgf("文件被锁定，跳过解密: %s", dbFile)
+						} else if s.errorHandler != nil {
+							// 其他严重错误：调用错误处理器
 							s.errorHandler(err)
 						}
 					}
 					return
 				}
+				// WAL 开启且工作目录存在
 				if flags.sawWal {
-					handled, err := s.IncrementalDecryptDBFile(dbFile)
+					// 同时看到 .db 和 WAL 变更 → 尝试增量解密
+					applied, err := s.IncrementalDecryptDBFile(dbFile)
 					if err != nil {
-						if s.errorHandler != nil {
+						if isFileLockedError(err) {
+							// 文件锁定错误：只记录警告，不停止服务
+							log.Warn().Err(err).Msgf("文件被锁定，跳过增量解密: %s", dbFile)
+						} else if s.errorHandler != nil {
+							// 其他严重错误：调用错误处理器
 							s.errorHandler(err)
 						}
+						// 增量解密出错，不回退全量（可能是密钥问题等严重错误）
 						return
 					}
-					if handled {
+					if applied {
+						// 增量解密成功应用
 						return
 					}
+					// 增量解密未应用（无新 commit），回退全量解密
+					log.Debug().Msgf("WAL incremental not applied, fallback to full decrypt: %s", dbFile)
+				}
+				// 没有 WAL 事件，或增量未应用 → 全量解密
+				if err := s.DecryptDBFile(dbFile); err != nil {
+					if isFileLockedError(err) {
+						// 文件锁定错误：只记录警告，不停止服务
+						log.Warn().Err(err).Msgf("文件被锁定，跳过解密: %s", dbFile)
+					} else if s.errorHandler != nil {
+						// 其他严重错误：调用错误处理器
+						s.errorHandler(err)
+					}
+				} else {
+					s.clearWalState(dbFile)
 				}
 				return
 			}
 			if flags.sawWal && s.conf.GetWalEnabled() {
-				handled, err := s.IncrementalDecryptDBFile(dbFile)
+				// 只看到 WAL 变更 → 尝试增量解密
+				applied, err := s.IncrementalDecryptDBFile(dbFile)
 				if err != nil {
-					if s.errorHandler != nil {
+					if isFileLockedError(err) {
+						// 文件锁定错误：只记录警告，不停止服务
+						log.Warn().Err(err).Msgf("文件被锁定，跳过增量解密: %s", dbFile)
+					} else if s.errorHandler != nil {
+						// 其他严重错误：调用错误处理器
 						s.errorHandler(err)
 					}
 					return
 				}
-				if handled {
+				if applied {
+					// 增量解密成功应用
 					return
 				}
-				if !workCopyExists {
-					if err := s.DecryptDBFile(dbFile); err != nil {
-						if s.errorHandler != nil {
-							s.errorHandler(err)
-						}
+				// 增量解密未应用 → 回退全量解密
+				log.Debug().Msgf("WAL incremental not applied, fallback to full decrypt: %s", dbFile)
+				if err := s.DecryptDBFile(dbFile); err != nil {
+					if isFileLockedError(err) {
+						// 文件锁定错误：只记录警告，不停止服务
+						log.Warn().Err(err).Msgf("文件被锁定，跳过解密: %s", dbFile)
+					} else if s.errorHandler != nil {
+						// 其他严重错误：调用错误处理器
+						s.errorHandler(err)
 					}
+				} else {
+					s.clearWalState(dbFile)
 				}
 				return
 			}
+			// 既没有 .db 也没有 WAL 事件（理论上不应该到这里）
 			if !s.conf.GetWalEnabled() || !workCopyExists {
 				if err := s.DecryptDBFile(dbFile); err != nil {
-					if s.errorHandler != nil {
+					if isFileLockedError(err) {
+						// 文件锁定错误：只记录警告，不停止服务
+						log.Warn().Err(err).Msgf("文件被锁定，跳过解密: %s", dbFile)
+					} else if s.errorHandler != nil {
+						// 其他严重错误：调用错误处理器
 						s.errorHandler(err)
 					}
 				}
@@ -392,6 +487,7 @@ func (s *Service) getMaxWaitTimeForFile(dbFile string) time.Duration {
 	return s.getMaxWaitTime()
 }
 
+
 func isRealtimeDBFile(dbFile string) bool {
 	base := filepath.Base(dbFile)
 	if base == "session.db" {
@@ -488,7 +584,7 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 
 	decryptor, err := decrypt.NewDecryptor(s.conf.GetPlatform(), s.conf.GetVersion())
 	if err != nil {
-		return true, err
+		return false, err
 	}
 
 	dbInfo, err := common.OpenDBFile(dbFile, decryptor.GetPageSize())
@@ -496,31 +592,31 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 		if err == errors.ErrAlreadyDecrypted {
 			return false, nil
 		}
-		return true, err
+		return false, err
 	}
 
 	keyBytes, err := hex.DecodeString(s.conf.GetDataKey())
 	if err != nil {
-		return true, errors.DecodeKeyFailed(err)
+		return false, errors.DecodeKeyFailed(err)
 	}
 	if !decryptor.Validate(dbInfo.FirstPage, keyBytes) {
-		return true, errors.ErrDecryptIncorrectKey
+		return false, errors.ErrDecryptIncorrectKey
 	}
 
 	encKey, macKey, err := decryptor.DeriveKeys(keyBytes, dbInfo.Salt)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 
 	walFile, err := os.Open(walPath)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 	defer walFile.Close()
 
 	info, err := walFile.Stat()
 	if err != nil {
-		return true, err
+		return false, err
 	}
 	if info.Size() < walHeaderSize {
 		return false, nil
@@ -528,14 +624,14 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 
 	headerBuf := make([]byte, walHeaderSize)
 	if _, err := io.ReadFull(walFile, headerBuf); err != nil {
-		return true, err
+		return false, err
 	}
 	order, pageSize, salt1, salt2, err := parseWalHeader(headerBuf)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 	if pageSize != 0 && pageSize != uint32(decryptor.GetPageSize()) {
-		return true, fmt.Errorf("unexpected wal page size: %d", pageSize)
+		return false, fmt.Errorf("unexpected wal page size: %d", pageSize)
 	}
 
 	s.mutex.Lock()
@@ -551,12 +647,12 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 	s.mutex.Unlock()
 
 	if _, err := walFile.Seek(startOffset, io.SeekStart); err != nil {
-		return true, err
+		return false, err
 	}
 
 	outputFile, err := os.OpenFile(output, os.O_RDWR, 0)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 	defer outputFile.Close()
 
@@ -595,7 +691,7 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 
 		if commit != 0 {
 			if err := applyWalFrames(outputFile, txFrames, decryptor, encKey, macKey); err != nil {
-				return true, err
+				return false, err
 			}
 			txFrames = txFrames[:0]
 			lastCommitOffset = curOffset
@@ -616,10 +712,7 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 	// Remove WAL files if they exist to prevent SQLite from reading encrypted WALs
 	s.removeWalFiles(output)
 
-	if applied {
-		return true, nil
-	}
-	return true, nil
+	return applied, nil
 }
 
 func parseWalHeader(buf []byte) (binary.ByteOrder, uint32, uint32, uint32, error) {

@@ -91,15 +91,15 @@ func NewGroup(ctx context.Context, group string, hooks []Webhook, delayMs int64)
 		hooks:   hooks,
 		delayMs: delayMs,
 		ctx:     ctx,
-		ch:      make(chan fsnotify.Event, 1),
+		ch:      make(chan fsnotify.Event, 100),
 	}
 	go g.loop()
 	return g
 }
 
 func (g *Group) Callback(event fsnotify.Event) error {
-	// skip remove event
-	if !event.Op.Has(fsnotify.Create) {
+	// 只跳过 Remove 和 Chmod 事件，处理 Create、Write、Rename
+	if event.Op.Has(fsnotify.Remove) || event.Op.Has(fsnotify.Chmod) {
 		return nil
 	}
 
@@ -167,7 +167,7 @@ func (m *MessageWebhook) Do(event fsnotify.Event) {
 		return
 	}
 
-	m.lastTime = messages[len(messages)-1].Time.Add(time.Second)
+	newLastTime := messages[len(messages)-1].Time.Add(time.Second)
 
 	for _, message := range messages {
 		message.SetContent("host", m.host)
@@ -190,10 +190,14 @@ func (m *MessageWebhook) Do(event fsnotify.Event) {
 	resp, err := m.client.Do(req)
 	if err != nil {
 		log.Error().Err(err).Msgf("post messages failed")
+		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Error().Msgf("post messages failed, status code: %d", resp.StatusCode)
+		return
 	}
+
+	m.lastTime = newLastTime
 }
