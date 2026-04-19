@@ -72,8 +72,6 @@ func FindFilesWithPatterns(directory string, pattern string, recursive bool) ([]
 func DefaultWorkDir(account string) string {
 	if len(account) == 0 {
 		switch runtime.GOOS {
-		case "windows":
-			return filepath.Join(os.ExpandEnv("${USERPROFILE}"), "Documents", "chatlog")
 		case "darwin":
 			return filepath.Join(os.ExpandEnv("${HOME}"), "Documents", "chatlog")
 		default:
@@ -81,8 +79,6 @@ func DefaultWorkDir(account string) string {
 		}
 	}
 	switch runtime.GOOS {
-	case "windows":
-		return filepath.Join(os.ExpandEnv("${USERPROFILE}"), "Documents", "chatlog", account)
 	case "darwin":
 		return filepath.Join(os.ExpandEnv("${HOME}"), "Documents", "chatlog", account)
 	default:

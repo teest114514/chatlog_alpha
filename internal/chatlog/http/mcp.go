@@ -6,10 +6,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,7 +22,6 @@ import (
 	"github.com/sjzar/chatlog/internal/chatlog/conf"
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
-	"github.com/sjzar/chatlog/pkg/util"
 	"github.com/sjzar/chatlog/pkg/util/dat2img"
 	"github.com/sjzar/chatlog/pkg/util/silk"
 	"github.com/sjzar/chatlog/pkg/version"
@@ -32,17 +33,26 @@ func (s *Service) initMCPServer() {
 		server.WithToolCapabilities(true),
 		server.WithPromptCapabilities(true),
 	)
-	s.mcpServer.AddTool(ContactTool, s.handleMCPContact)
-	s.mcpServer.AddTool(ChatRoomTool, s.handleMCPChatRoom)
-	s.mcpServer.AddTool(RecentChatTool, s.handleMCPRecentChat)
-	s.mcpServer.AddTool(ChatLogTool, s.handleMCPChatLog)
 	s.mcpServer.AddTool(CurrentTimeTool, s.handleMCPCurrentTime)
 	s.mcpServer.AddTool(GetMediaContentTool, s.handleMCPGetMediaContent)
 	s.mcpServer.AddTool(OCRImageMessageTool, s.handleMCPOCRImageMessage)
 	s.mcpServer.AddTool(SendWebhookNotificationTool, s.handleMCPSendWebhookNotification)
-	s.mcpServer.AddTool(AnalyzeChatActivityTool, s.handleMCPAnalyzeChatActivity)
 	s.mcpServer.AddTool(GetUserProfileTool, s.handleMCPGetUserProfile)
 	s.mcpServer.AddTool(SearchSharedFilesTool, s.handleMCPSearchSharedFiles)
+	s.mcpServer.AddTool(WxPingTool, s.handleMCPWxPing)
+	s.mcpServer.AddTool(WxContactsTool, s.handleMCPWxContacts)
+	s.mcpServer.AddTool(WxChatRoomsTool, s.handleMCPWxChatRooms)
+	s.mcpServer.AddTool(WxSessionsTool, s.handleMCPWxSessions)
+	s.mcpServer.AddTool(WxHistoryTool, s.handleMCPWxHistory)
+	s.mcpServer.AddTool(WxSearchTool, s.handleMCPWxSearch)
+	s.mcpServer.AddTool(WxUnreadTool, s.handleMCPWxUnread)
+	s.mcpServer.AddTool(WxMembersTool, s.handleMCPWxMembers)
+	s.mcpServer.AddTool(WxNewMessagesTool, s.handleMCPWxNewMessages)
+	s.mcpServer.AddTool(WxStatsTool, s.handleMCPWxStats)
+	s.mcpServer.AddTool(WxFavoritesTool, s.handleMCPWxFavorites)
+	s.mcpServer.AddTool(WxSNSNotificationsTool, s.handleMCPWxSNSNotifications)
+	s.mcpServer.AddTool(WxSNSFeedTool, s.handleMCPWxSNSFeed)
+	s.mcpServer.AddTool(WxSNSSearchTool, s.handleMCPWxSNSSearch)
 	s.mcpServer.AddPrompt(ChatSummaryDailyPrompt, s.handleMCPChatSummaryDaily)
 	s.mcpServer.AddPrompt(ConflictDetectorPrompt, s.handleMCPConflictDetector)
 	s.mcpServer.AddPrompt(RelationshipMilestonesPrompt, s.handleMCPRelationshipMilestones)
@@ -79,13 +89,6 @@ var SearchSharedFilesTool = mcp.NewTool(
 	mcp.WithString("keyword", mcp.Description("文件名搜索关键词")),
 )
 
-var AnalyzeChatActivityTool = mcp.NewTool(
-	"analyze_chat_activity",
-	mcp.WithDescription(`统计特定时间段内对话方的活跃度，包括发言频率、活跃时段等。用于分析某人的社交习惯或群聊热度。`),
-	mcp.WithString("time", mcp.Description("时间范围 (例如: 2023-04-01~2023-04-18)"), mcp.Required()),
-	mcp.WithString("talker", mcp.Description("对话方 ID"), mcp.Required()),
-)
-
 var GetUserProfileTool = mcp.NewTool(
 	"get_user_profile",
 	mcp.WithDescription(`获取联系人或群组的详细资料，包括备注、属性、群成员（如果是群组）等背景信息。用于更深入地了解对话方。`),
@@ -114,122 +117,6 @@ var GetMediaContentTool = mcp.NewTool(
 	mcp.WithNumber("message_id", mcp.Description("消息的唯一 ID (Seq)"), mcp.Required()),
 )
 
-var ContactTool = mcp.NewTool(
-	"query_contact",
-	mcp.WithDescription(`查询用户的联系人信息。可以通过姓名、备注名或ID进行查询，返回匹配的联系人列表。当用户询问某人的联系方式、想了解联系人信息或需要查找特定联系人时使用此工具。参数为空时，将返回联系人列表`),
-	mcp.WithString("keyword", mcp.Description("联系人的搜索关键词，可以是姓名、备注名或ID。")),
-)
-
-var ChatRoomTool = mcp.NewTool(
-	"query_chat_room",
-	mcp.WithDescription(`查询用户参与的群聊信息。可以通过群名称、群ID或相关关键词进行查询，返回匹配的群聊列表。当用户询问群聊信息、想了解某个群的详情或需要查找特定群聊时使用此工具。`),
-	mcp.WithString("keyword", mcp.Description("群聊的搜索关键词，可以是群名称、群ID或相关描述")),
-)
-
-var RecentChatTool = mcp.NewTool(
-	"query_recent_chat",
-	mcp.WithDescription(`查询最近会话列表，包括个人聊天和群聊。当用户想了解最近的聊天记录、查看最近联系过的人或群组时使用此工具。不需要参数，直接返回最近的会话列表。`),
-)
-
-var ChatLogTool = mcp.NewTool(
-	"query_chat_log",
-	mcp.WithDescription(`检索历史聊天记录，可根据时间、对话方、发送者和关键词等条件进行精确查询。当用户需要查找特定信息或想了解与某人/某群的历史交流时使用此工具。
-
-【强制多步查询流程!】
-当查询特定话题或特定发送者发言时，必须严格按照以下流程使用，任何偏离都会导致错误的结果：
-
-步骤1: 初步定位相关消息
-- 使用keyword参数查找特定话题
-- 使用sender参数查找特定发送者的消息
-- 使用较宽时间范围初步查询
-
-步骤2: 【必须执行】针对每个关键结果点分别获取上下文
-- 必须对步骤1返回的每个时间点T1, T2, T3...分别执行独立查询（时间范围接近的消息可以合并为一个查询）
-- 每次独立查询必须移除keyword参数
-- 每次独立查询必须移除sender参数
-- 每次独立查询使用"Tn前后15-30分钟"的窄范围
-- 每次独立查询仅保留talker参数
-
-步骤3: 【必须执行】综合分析所有上下文
-- 必须等待所有步骤2的查询结果返回后再进行分析
-- 必须综合考虑所有上下文信息后再回答用户
-
-【严格执行规则！】
-- 禁止仅凭步骤1的结果直接回答用户
-- 禁止在步骤2使用过大的时间范围一次性查询所有上下文
-- 禁止跳过步骤2或步骤3
-- 必须对每个关键结果点分别执行独立的上下文查询
-
-【执行示例】
-正确流程示例:
-1. 步骤1: chatlog(time="2023-04-01~2023-04-30", talker="工作群", keyword="项目进度")
-返回结果: 4月5日、4月12日、4月20日有相关消息
-2. 步骤2:
-- 查询1: chatlog(time="2023-04-05/09:30~2023-04-05/10:30", talker="工作群") // 注意没有keyword
-- 查询2: chatlog(time="2023-04-12/14:00~2023-04-12/15:00", talker="工作群") // 注意没有keyword
-- 查询3: chatlog(time="2023-04-20/16:00~2023-04-20/17:00", talker="工作群") // 注意没有keyword
-3. 步骤3: 综合分析所有上下文后回答用户
-
-错误流程示例:
-- 仅执行步骤1后直接回答
-- 步骤2使用time="2023-04-01~2023-04-30"一次性查询
-- 步骤2仍然保留keyword或sender参数
-
-【自我检查】回答用户前必须自问:
-- 我是否对每个关键时间点都执行了独立的上下文查询?
-- 我是否在上下文查询中移除了keyword和sender参数?
-- 我是否分析了所有上下文后再回答?
-- 如果上述任一问题答案为"否"，则必须纠正流程
-
-返回格式："昵称(ID) [MessageID] 时间\n消息内容\n昵称(ID) [MessageID] 时间\n消息内容"
-当消息内容包含 [图片] 或 [语音] 时，可以使用 get_media_content 或 ocr_image_message 工具，并传入对应的 [MessageID] 来获取具体内容。
-当查询多个Talker时，返回格式为："昵称(ID)\n[TalkerName(Talker)] [MessageID] 时间\n消息内容"
-
-重要提示：
-1. 当用户询问特定时间段内的聊天记录时，必须使用正确的时间格式，特别是包含小时和分钟的查询
-2. 对于"今天下午4点到5点聊了啥"这类查询，正确的时间参数格式应为"2023-04-18/16:00~2023-04-18/17:00"
-3. 当用户询问具体群聊中某人的聊天记录时，使用"sender"参数
-4. 当用户询问包含特定关键词的聊天记录时，使用"keyword"参数`),
-	mcp.WithString("time", mcp.Description(`指定查询的时间点或时间范围，格式必须严格遵循以下规则：
-
-【单一时间点格式】
-- 精确到日："2023-04-18"或"20230418"
-- 精确到分钟（必须包含斜杠和冒号）："2023-04-18/14:30"或"20230418/14:30"（表示2023年4月18日14点30分）
-
-【时间范围格式】（使用"~"分隔起止时间）
-- 日期范围："2023-04-01~2023-04-18"
-- 同一天的时间段："2023-04-18/14:30~2023-04-18/15:45"
-* 表示2023年4月18日14点30分到15点45分之间
-
-【重要提示】包含小时分钟的格式必须使用斜杠和冒号："/"和":"
-正确示例："2023-04-18/16:30"（4月18日下午4点30分）
-错误示例："2023-04-18 16:30"、"2023-04-18T16:30"
-
-【其他支持的格式】
-- 年份："2023"
-- 月份："2023-04"或"202304"`), mcp.Required()),
-	mcp.WithString("talker", mcp.Description(`指定对话方（联系人或群组）
-- 可使用ID、昵称或备注名
-- 多个对话方用","分隔，如："张三,李四,工作群"
-- 【重要】这是多步查询中唯一应保留的参数`), mcp.Required()),
-	mcp.WithString("sender", mcp.Description(`指定群聊中的发送者
-- 仅在查询群聊记录时有效
-- 多个发送者用","分隔，如："张三,李四"
-- 可使用ID、昵称或备注名
-【重要】查询特定发送者的消息时：
-1. 第一步：使用sender参数初步定位多个相关消息时间点
-2. 后续步骤：必须移除sender参数，分别查询每个时间点前后的完整对话
-3. 错误示例：对所有找到的消息一次性查询大范围上下文
-4. 正确示例：对每个时间点T分别执行查询"T前后15-30分钟"（不带sender）`)),
-	mcp.WithString("keyword", mcp.Description(`搜索内容中的关键词
-- 支持正则表达式匹配
-- 【重要】查询特定话题时：
-1. 第一步：使用keyword参数初步定位多个相关消息时间点
-2. 后续步骤：必须移除keyword参数，分别查询每个时间点前后的完整对话
-3. 错误示例：对所有找到的关键词消息一次性查询大范围上下文
-4. 正确示例：对每个时间点T分别执行查询"T前后15-30分钟"（不带keyword）`)),
-)
-
 var CurrentTimeTool = mcp.NewTool(
 	"current_time",
 	mcp.WithDescription(`获取当前系统时间，返回RFC3339格式的时间字符串（包含用户本地时区信息）。
@@ -241,167 +128,105 @@ var CurrentTimeTool = mcp.NewTool(
 注意：此工具不需要任何输入参数，直接调用即可获取当前时间。`),
 )
 
-type ContactRequest struct {
-	Keyword string `json:"keyword"`
-	Limit   int    `json:"limit"`
-	Offset  int    `json:"offset"`
-}
-
-func (s *Service) handleMCPContact(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	var req ContactRequest
-	if err := request.BindArguments(&req); err != nil {
-		log.Error().Err(err).Msg("Failed to bind arguments")
-		log.Error().Interface("request", request.GetRawArguments()).Msg("Failed to bind arguments")
-		return errors.ErrMCPTool(err), nil
-	}
-
-	list, err := s.db.GetContacts(req.Keyword, req.Limit, req.Offset)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get contacts")
-		return errors.ErrMCPTool(err), nil
-	}
-	buf := &bytes.Buffer{}
-	buf.WriteString("UserName,Alias,Remark,NickName\n")
-	for _, contact := range list.Items {
-		buf.WriteString(fmt.Sprintf("%s,%s,%s,%s\n", contact.UserName, contact.Alias, contact.Remark, contact.NickName))
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{
-				Type: "text",
-				Text: buf.String(),
-			},
-		},
-	}, nil
-}
-
-type ChatRoomRequest struct {
-	Keyword string `json:"keyword"`
-	Limit   int    `json:"limit"`
-	Offset  int    `json:"offset"`
-}
-
-func (s *Service) handleMCPChatRoom(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	var req ChatRoomRequest
-	if err := request.BindArguments(&req); err != nil {
-		log.Error().Err(err).Msg("Failed to bind arguments")
-		log.Error().Interface("request", request.GetRawArguments()).Msg("Failed to bind arguments")
-		return errors.ErrMCPTool(err), nil
-	}
-
-	list, err := s.db.GetChatRooms(req.Keyword, req.Limit, req.Offset)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get chat rooms")
-		return errors.ErrMCPTool(err), nil
-	}
-	buf := &bytes.Buffer{}
-	buf.WriteString("Name,Remark,NickName,Owner,UserCount\n")
-	for _, chatRoom := range list.Items {
-		buf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%d\n", chatRoom.Name, chatRoom.Remark, chatRoom.NickName, chatRoom.Owner, len(chatRoom.Users)))
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{
-				Type: "text",
-				Text: buf.String(),
-			},
-		},
-	}, nil
-}
-
-type RecentChatRequest struct {
-	Keyword string `json:"keyword"`
-	Limit   int    `json:"limit"`
-	Offset  int    `json:"offset"`
-}
-
-func (s *Service) handleMCPRecentChat(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	var req RecentChatRequest
-	if err := request.BindArguments(&req); err != nil {
-		log.Error().Err(err).Msg("Failed to bind arguments")
-		log.Error().Interface("request", request.GetRawArguments()).Msg("Failed to bind arguments")
-		return errors.ErrMCPTool(err), nil
-	}
-
-	data, err := s.db.GetSessions(req.Keyword, req.Limit, req.Offset)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get sessions")
-		return errors.ErrMCPTool(err), nil
-	}
-	buf := &bytes.Buffer{}
-	for _, session := range data.Items {
-		buf.WriteString(session.PlainText(120))
-		buf.WriteString("\n")
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{
-				Type: "text",
-				Text: buf.String(),
-			},
-		},
-	}, nil
-}
-
-type ChatLogRequest struct {
-	Time    string `form:"time"`
-	Talker  string `form:"talker"`
-	Sender  string `form:"sender"`
-	Keyword string `form:"keyword"`
-	Limit   int    `form:"limit"`
-	Offset  int    `form:"offset"`
-	Format  string `form:"format"`
-}
-
-func (s *Service) handleMCPChatLog(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-
-	var req ChatLogRequest
-	if err := request.BindArguments(&req); err != nil {
-		log.Error().Err(err).Msg("Failed to bind arguments")
-		log.Error().Interface("request", request.GetRawArguments()).Msg("Failed to bind arguments")
-		return errors.ErrMCPTool(err), nil
-	}
-
-	var err error
-	start, end, ok := util.TimeRangeOf(req.Time)
-	if !ok {
-		log.Error().Err(err).Msg("Failed to get messages")
-		return errors.ErrMCPTool(err), nil
-	}
-	if req.Limit < 0 {
-		req.Limit = 0
-	}
-
-	if req.Offset < 0 {
-		req.Offset = 0
-	}
-
-	messages, err := s.db.GetMessages(start, end, req.Talker, req.Sender, req.Keyword, req.Limit, req.Offset)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get messages")
-		return errors.ErrMCPTool(err), nil
-	}
-
-	buf := &bytes.Buffer{}
-	if len(messages) == 0 {
-		buf.WriteString("未找到符合查询条件的聊天记录")
-	}
-	for _, m := range messages {
-		buf.WriteString(m.PlainText(strings.Contains(req.Talker, ","), util.PerfectTimeFormat(start, end), ""))
-		buf.WriteString("\n")
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{
-				Type: "text",
-				Text: buf.String(),
-			},
-		},
-	}, nil
-}
+var WxPingTool = mcp.NewTool("wx_ping", mcp.WithDescription("wx-cli 兼容: ping"))
+var WxContactsTool = mcp.NewTool(
+	"wx_contacts",
+	mcp.WithDescription("wx-cli 兼容: contacts"),
+	mcp.WithString("query", mcp.Description("联系人关键词")),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithNumber("offset", mcp.Description("偏移")),
+)
+var WxChatRoomsTool = mcp.NewTool(
+	"wx_chatrooms",
+	mcp.WithDescription("wx-cli 兼容: chatrooms"),
+	mcp.WithString("query", mcp.Description("群聊关键词")),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithNumber("offset", mcp.Description("偏移")),
+)
+var WxSessionsTool = mcp.NewTool(
+	"wx_sessions",
+	mcp.WithDescription("wx-cli 兼容: sessions"),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+)
+var WxHistoryTool = mcp.NewTool(
+	"wx_history",
+	mcp.WithDescription("wx-cli 兼容: history"),
+	mcp.WithString("chat", mcp.Description("会话标识（昵称/备注/wxid）"), mcp.Required()),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithNumber("offset", mcp.Description("偏移")),
+	mcp.WithString("time", mcp.Description("时间范围")),
+	mcp.WithString("since", mcp.Description("开始时间戳（秒）")),
+	mcp.WithString("until", mcp.Description("结束时间戳（秒）")),
+	mcp.WithNumber("msg_type", mcp.Description("消息类型")),
+)
+var WxSearchTool = mcp.NewTool(
+	"wx_search",
+	mcp.WithDescription("wx-cli 兼容: search"),
+	mcp.WithString("keyword", mcp.Description("关键词"), mcp.Required()),
+	mcp.WithString("chats", mcp.Description("逗号分隔会话列表")),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithString("time", mcp.Description("时间范围")),
+	mcp.WithString("since", mcp.Description("开始时间戳（秒）")),
+	mcp.WithString("until", mcp.Description("结束时间戳（秒）")),
+	mcp.WithNumber("msg_type", mcp.Description("消息类型")),
+)
+var WxUnreadTool = mcp.NewTool(
+	"wx_unread",
+	mcp.WithDescription("wx-cli 兼容: unread"),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithString("filter", mcp.Description("private/group/official/folded/all")),
+)
+var WxMembersTool = mcp.NewTool(
+	"wx_members",
+	mcp.WithDescription("wx-cli 兼容: members"),
+	mcp.WithString("chat", mcp.Description("群聊标识"), mcp.Required()),
+)
+var WxNewMessagesTool = mcp.NewTool(
+	"wx_new_messages",
+	mcp.WithDescription("wx-cli 兼容: new_messages"),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithString("state", mcp.Description("JSON 字符串: {\"username\":timestamp}")),
+)
+var WxStatsTool = mcp.NewTool(
+	"wx_stats",
+	mcp.WithDescription("wx-cli 兼容: stats"),
+	mcp.WithString("chat", mcp.Description("会话标识"), mcp.Required()),
+	mcp.WithString("time", mcp.Description("时间范围")),
+	mcp.WithString("since", mcp.Description("开始时间戳（秒）")),
+	mcp.WithString("until", mcp.Description("结束时间戳（秒）")),
+)
+var WxFavoritesTool = mcp.NewTool(
+	"wx_favorites",
+	mcp.WithDescription("wx-cli 兼容: favorites"),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithNumber("fav_type", mcp.Description("收藏类型")),
+	mcp.WithString("query", mcp.Description("关键词")),
+)
+var WxSNSNotificationsTool = mcp.NewTool(
+	"wx_sns_notifications",
+	mcp.WithDescription("wx-cli 兼容: sns_notifications"),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithString("since", mcp.Description("开始时间戳（秒）")),
+	mcp.WithString("until", mcp.Description("结束时间戳（秒）")),
+	mcp.WithBoolean("include_read", mcp.Description("是否包含已读")),
+)
+var WxSNSFeedTool = mcp.NewTool(
+	"wx_sns_feed",
+	mcp.WithDescription("wx-cli 兼容: sns_feed"),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithString("since", mcp.Description("开始时间戳（秒）")),
+	mcp.WithString("until", mcp.Description("结束时间戳（秒）")),
+	mcp.WithString("user", mcp.Description("作者筛选")),
+)
+var WxSNSSearchTool = mcp.NewTool(
+	"wx_sns_search",
+	mcp.WithDescription("wx-cli 兼容: sns_search"),
+	mcp.WithString("keyword", mcp.Description("关键词"), mcp.Required()),
+	mcp.WithNumber("limit", mcp.Description("返回条数")),
+	mcp.WithString("since", mcp.Description("开始时间戳（秒）")),
+	mcp.WithString("until", mcp.Description("结束时间戳（秒）")),
+	mcp.WithString("user", mcp.Description("作者筛选")),
+)
 
 func (s *Service) handleMCPCurrentTime(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return &mcp.CallToolResult{
@@ -653,93 +478,6 @@ func (s *Service) handleMCPSendWebhookNotification(ctx context.Context, request 
 	}, nil
 }
 
-type AnalyzeChatActivityRequest struct {
-	Time   string `json:"time"`
-	Talker string `json:"talker"`
-}
-
-func (s *Service) handleMCPAnalyzeChatActivity(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	var req AnalyzeChatActivityRequest
-	if err := request.BindArguments(&req); err != nil {
-		return errors.ErrMCPTool(err), nil
-	}
-
-	start, end, ok := util.TimeRangeOf(req.Time)
-	if !ok {
-		return errors.ErrMCPTool(fmt.Errorf("invalid time format")), nil
-	}
-
-	messages, err := s.db.GetMessages(start, end, req.Talker, "", "", 0, 0)
-	if err != nil {
-		return errors.ErrMCPTool(err), nil
-	}
-
-	if len(messages) == 0 {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: "该时间段内没有聊天记录。",
-				},
-			},
-		}, nil
-	}
-
-	// 统计逻辑
-	totalCount := len(messages)
-	senderStats := make(map[string]int)
-	hourStats := make(map[int]int)
-	typeStats := make(map[int64]int)
-
-	for _, m := range messages {
-		sender := m.SenderName
-		if sender == "" {
-			sender = m.Sender
-		}
-		senderStats[sender]++
-		hourStats[m.Time.Hour()]++
-		typeStats[m.Type]++
-	}
-
-	buf := &bytes.Buffer{}
-	buf.WriteString(fmt.Sprintf("分析报告 (%s - %s)\n", start.Format(time.DateOnly), end.Format(time.DateOnly)))
-	buf.WriteString(fmt.Sprintf("总消息数: %d\n\n", totalCount))
-
-	buf.WriteString("发言频率排行:\n")
-	type senderStat struct {
-		Name  string
-		Count int
-	}
-	ss := make([]senderStat, 0, len(senderStats))
-	for name, count := range senderStats {
-		ss = append(ss, senderStat{name, count})
-	}
-	sort.Slice(ss, func(i, j int) bool { return ss[i].Count > ss[j].Count })
-	for i, s := range ss {
-		if i >= 10 {
-			break
-		} // 只显示前 10
-		percentage := float64(s.Count) / float64(totalCount) * 100
-		buf.WriteString(fmt.Sprintf("- %s: %d (%.1f%%)\n", s.Name, s.Count, percentage))
-	}
-
-	buf.WriteString("\n活跃时段分布:\n")
-	for h := 0; h < 24; h++ {
-		if count, ok := hourStats[h]; ok {
-			buf.WriteString(fmt.Sprintf("%02d:00: %s (%d)\n", h, strings.Repeat("█", (count*20+totalCount-1)/totalCount), count))
-		}
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{
-				Type: "text",
-				Text: buf.String(),
-			},
-		},
-	}, nil
-}
-
 type GetUserProfileRequest struct {
 	Key string `json:"key"`
 }
@@ -809,6 +547,383 @@ type SearchSharedFilesRequest struct {
 	Keyword string `json:"keyword"`
 }
 
+func (s *Service) callCompatEndpoint(path string, q url.Values) (string, error) {
+	addr := strings.TrimSpace(s.conf.GetHTTPAddr())
+	if addr == "" {
+		return "", fmt.Errorf("HTTP address is empty")
+	}
+	u := fmt.Sprintf("http://%s%s", addr, path)
+	if q != nil && len(q) > 0 {
+		u += "?" + q.Encode()
+	}
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("request failed: %s", strings.TrimSpace(string(b)))
+	}
+	return string(b), nil
+}
+
+func textResult(text string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{Type: "text", Text: text},
+		},
+	}
+}
+
+func setOptionalInt(q url.Values, key string, v int) {
+	if v > 0 {
+		q.Set(key, strconv.Itoa(v))
+	}
+}
+
+func setOptionalInt64(q url.Values, key string, v int64) {
+	if v > 0 {
+		q.Set(key, strconv.FormatInt(v, 10))
+	}
+}
+
+func (s *Service) handleMCPWxPing(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	body, err := s.callCompatEndpoint("/api/v1/ping", nil)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxContacts(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Query  string `json:"query"`
+		Limit  int    `json:"limit"`
+		Offset int    `json:"offset"`
+	}
+	_ = request.BindArguments(&req)
+	q := url.Values{}
+	if req.Query != "" {
+		q.Set("query", req.Query)
+	}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Offset > 0 {
+		q.Set("offset", strconv.Itoa(req.Offset))
+	}
+	body, err := s.callCompatEndpoint("/api/v1/contacts", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxChatRooms(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Query  string `json:"query"`
+		Limit  int    `json:"limit"`
+		Offset int    `json:"offset"`
+	}
+	_ = request.BindArguments(&req)
+	q := url.Values{}
+	if req.Query != "" {
+		q.Set("query", req.Query)
+	}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Offset > 0 {
+		q.Set("offset", strconv.Itoa(req.Offset))
+	}
+	body, err := s.callCompatEndpoint("/api/v1/chatrooms", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxSessions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Limit int `json:"limit"`
+	}
+	_ = request.BindArguments(&req)
+	q := url.Values{}
+	setOptionalInt(q, "limit", req.Limit)
+	body, err := s.callCompatEndpoint("/api/v1/sessions", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxHistory(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Chat    string `json:"chat"`
+		Limit   int    `json:"limit"`
+		Offset  int    `json:"offset"`
+		Time    string `json:"time"`
+		Since   string `json:"since"`
+		Until   string `json:"until"`
+		MsgType int64  `json:"msg_type"`
+	}
+	if err := request.BindArguments(&req); err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	if strings.TrimSpace(req.Chat) == "" {
+		return errors.ErrMCPTool(fmt.Errorf("chat is required")), nil
+	}
+	q := url.Values{}
+	q.Set("chat", req.Chat)
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Offset > 0 {
+		q.Set("offset", strconv.Itoa(req.Offset))
+	}
+	if req.Time != "" {
+		q.Set("time", req.Time)
+	}
+	if req.Since != "" {
+		q.Set("since", req.Since)
+	}
+	if req.Until != "" {
+		q.Set("until", req.Until)
+	}
+	setOptionalInt64(q, "msg_type", req.MsgType)
+	body, err := s.callCompatEndpoint("/api/v1/history", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxSearch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Keyword string `json:"keyword"`
+		Chats   string `json:"chats"`
+		Limit   int    `json:"limit"`
+		Time    string `json:"time"`
+		Since   string `json:"since"`
+		Until   string `json:"until"`
+		MsgType int64  `json:"msg_type"`
+	}
+	if err := request.BindArguments(&req); err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	if strings.TrimSpace(req.Keyword) == "" {
+		return errors.ErrMCPTool(fmt.Errorf("keyword is required")), nil
+	}
+	q := url.Values{}
+	q.Set("keyword", req.Keyword)
+	if req.Chats != "" {
+		q.Set("chats", req.Chats)
+	}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Time != "" {
+		q.Set("time", req.Time)
+	}
+	if req.Since != "" {
+		q.Set("since", req.Since)
+	}
+	if req.Until != "" {
+		q.Set("until", req.Until)
+	}
+	setOptionalInt64(q, "msg_type", req.MsgType)
+	body, err := s.callCompatEndpoint("/api/v1/search", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxUnread(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Limit  int    `json:"limit"`
+		Filter string `json:"filter"`
+	}
+	_ = request.BindArguments(&req)
+	q := url.Values{}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Filter != "" {
+		q.Set("filter", req.Filter)
+	}
+	body, err := s.callCompatEndpoint("/api/v1/unread", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxMembers(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Chat string `json:"chat"`
+	}
+	if err := request.BindArguments(&req); err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	if strings.TrimSpace(req.Chat) == "" {
+		return errors.ErrMCPTool(fmt.Errorf("chat is required")), nil
+	}
+	q := url.Values{"chat": []string{req.Chat}}
+	body, err := s.callCompatEndpoint("/api/v1/members", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxNewMessages(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Limit int    `json:"limit"`
+		State string `json:"state"`
+	}
+	_ = request.BindArguments(&req)
+	q := url.Values{}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.State != "" {
+		q.Set("state", req.State)
+	}
+	body, err := s.callCompatEndpoint("/api/v1/new_messages", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxStats(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Chat  string `json:"chat"`
+		Time  string `json:"time"`
+		Since string `json:"since"`
+		Until string `json:"until"`
+	}
+	if err := request.BindArguments(&req); err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	if strings.TrimSpace(req.Chat) == "" {
+		return errors.ErrMCPTool(fmt.Errorf("chat is required")), nil
+	}
+	q := url.Values{"chat": []string{req.Chat}}
+	if req.Time != "" {
+		q.Set("time", req.Time)
+	}
+	if req.Since != "" {
+		q.Set("since", req.Since)
+	}
+	if req.Until != "" {
+		q.Set("until", req.Until)
+	}
+	body, err := s.callCompatEndpoint("/api/v1/stats", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxFavorites(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Limit   int    `json:"limit"`
+		FavType int64  `json:"fav_type"`
+		Query   string `json:"query"`
+	}
+	_ = request.BindArguments(&req)
+	q := url.Values{}
+	setOptionalInt(q, "limit", req.Limit)
+	setOptionalInt64(q, "fav_type", req.FavType)
+	if req.Query != "" {
+		q.Set("query", req.Query)
+	}
+	body, err := s.callCompatEndpoint("/api/v1/favorites", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxSNSNotifications(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Limit       int    `json:"limit"`
+		Since       string `json:"since"`
+		Until       string `json:"until"`
+		IncludeRead bool   `json:"include_read"`
+	}
+	_ = request.BindArguments(&req)
+	q := url.Values{}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Since != "" {
+		q.Set("since", req.Since)
+	}
+	if req.Until != "" {
+		q.Set("until", req.Until)
+	}
+	if req.IncludeRead {
+		q.Set("include_read", "true")
+	}
+	body, err := s.callCompatEndpoint("/api/v1/sns_notifications", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxSNSFeed(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Limit int    `json:"limit"`
+		Since string `json:"since"`
+		Until string `json:"until"`
+		User  string `json:"user"`
+	}
+	_ = request.BindArguments(&req)
+	q := url.Values{}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Since != "" {
+		q.Set("since", req.Since)
+	}
+	if req.Until != "" {
+		q.Set("until", req.Until)
+	}
+	if req.User != "" {
+		q.Set("user", req.User)
+	}
+	body, err := s.callCompatEndpoint("/api/v1/sns_feed", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxSNSSearch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Keyword string `json:"keyword"`
+		Limit   int    `json:"limit"`
+		Since   string `json:"since"`
+		Until   string `json:"until"`
+		User    string `json:"user"`
+	}
+	if err := request.BindArguments(&req); err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	if strings.TrimSpace(req.Keyword) == "" {
+		return errors.ErrMCPTool(fmt.Errorf("keyword is required")), nil
+	}
+	q := url.Values{"keyword": []string{req.Keyword}}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Since != "" {
+		q.Set("since", req.Since)
+	}
+	if req.Until != "" {
+		q.Set("until", req.Until)
+	}
+	if req.User != "" {
+		q.Set("user", req.User)
+	}
+	body, err := s.callCompatEndpoint("/api/v1/sns_search", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
 func (s *Service) handleMCPSearchSharedFiles(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var req SearchSharedFilesRequest
 	if err := request.BindArguments(&req); err != nil {
@@ -861,7 +976,7 @@ func (s *Service) handleMCPChatSummaryDaily(ctx context.Context, request mcp.Get
 		[]mcp.PromptMessage{
 			mcp.NewPromptMessage(mcp.RoleUser, mcp.TextContent{
 				Type: "text",
-				Text: fmt.Sprintf("请分析并在总结 %s 在 %s 的聊天内容。请先使用 query_chat_log 获取当天的完整记录，然后从关键话题、重要决策、待办事项三个维度进行总结。", talker, date),
+				Text: fmt.Sprintf("请分析并在总结 %s 在 %s 的聊天内容。请先使用 wx_history 获取当天的完整记录，然后从关键话题、重要决策、待办事项三个维度进行总结。", talker, date),
 			}),
 		},
 	), nil
@@ -894,5 +1009,3 @@ func (s *Service) handleMCPRelationshipMilestones(ctx context.Context, request m
 		},
 	), nil
 }
-
-

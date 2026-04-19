@@ -28,12 +28,22 @@ type Service struct {
 	// md5 到 path 的缓存（用于图片、视频等媒体文件）
 	md5PathCache map[string]string
 	md5PathMu    sync.RWMutex
+
+	// 失败时自动刷新图片密钥的节流控制
+	imgKeyRefreshMu   sync.Mutex
+	lastImgKeyRefresh time.Time
 }
 
 type Config interface {
 	GetHTTPAddr() string
 	GetDataDir() string
 	GetSaveDecryptedMedia() bool
+	GetDataKey() string
+	GetWorkDir() string
+	GetPlatform() string
+	GetVersion() int
+	GetWalEnabled() bool
+	GetAutoDecryptDebounce() int
 }
 
 func NewService(conf Config, db *database.Service) *Service {

@@ -1,0 +1,6 @@
+./sysconf.go
+./sysconf_bsd.go
+./sysconf_darwin.go
+./sysconf_generic.go
+./sysconf_posix.go
+./zsysconf_defs_darwin.go

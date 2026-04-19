@@ -11,7 +11,6 @@ import (
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/wechat/decrypt"
 	"github.com/sjzar/chatlog/internal/wechat/key"
-	"github.com/sjzar/chatlog/internal/wechat/key/windows"
 	"github.com/sjzar/chatlog/internal/wechat/model"
 )
 
@@ -218,9 +217,14 @@ func (a *Account) clearAccountData() {
 
 // GetKey 获取账号的密钥
 func (a *Account) GetKey(ctx context.Context) (string, string, error) {
+	forceRefresh, _ := ctx.Value("force_key_refresh").(bool)
 	hasDataKey := a.Key != ""
 	hasImgKey := a.ImgKey != ""
 	isV4 := a.Version == 4
+	if forceRefresh {
+		hasDataKey = false
+		hasImgKey = false
+	}
 
 	// 1. 如果已有Data Key
 	if hasDataKey {
@@ -230,79 +234,15 @@ func (a *Account) GetKey(ctx context.Context) (string, string, error) {
 			return a.Key, a.ImgKey, nil
 		}
 
-		// V4且缺图片Key -> 尝试补全
-		// 此时我们不走标准的Extractor (它会走DLL然后等待30秒)，而是直接用原生扫描器
-		if isV4 && !hasImgKey && a.Platform == "windows" {
-			log.Info().Msgf("账号 %s 已有数据库密钥，正在尝试使用内存扫描补全图片密钥...", a.Name)
-			
-			// 刷新状态以获取最新的Process对象
-			if err := a.RefreshStatus(); err != nil {
-				log.Warn().Err(err).Msg("刷新进程状态失败，返回现有密钥")
-				return a.Key, a.ImgKey, nil
-			}
-			process, err := GetProcess(a.Name)
-			if err != nil {
-				return a.Key, a.ImgKey, nil
-			}
-
-			// 图片密钥扫描依赖 DataDir（需要微信登录成功后才会就绪）
-			if process.DataDir == "" {
-				log.Info().Msg("检测到数据目录未就绪，等待微信登录...")
-				for i := 0; i < 30; i++ {
-					time.Sleep(1 * time.Second)
-					if err := a.RefreshStatus(); err == nil {
-						if p, err := GetProcess(a.Name); err == nil && p.DataDir != "" {
-							process = p
-							a.DataDir = p.DataDir
-							log.Info().Msgf("数据目录已就绪: %s", p.DataDir)
-							break
-						}
-					}
-				}
-			}
-			if process.DataDir == "" {
-				log.Warn().Msg("数据目录未就绪，无法补全图片密钥（请确保微信已登录）")
-				return a.Key, a.ImgKey, nil
-			}
-
-			// 准备验证器
-			var validator *decrypt.Validator
-			if process.DataDir != "" {
-				validator, err = decrypt.NewValidator(process.Platform, process.Version, process.DataDir)
-				if err != nil {
-					log.Warn().Err(err).Msg("创建验证器失败")
-				}
-			}
-
-			// 直接调用原生V4扫描器
-			v4 := windows.NewV4Extractor()
-			if validator != nil {
-				v4.SetValidate(validator)
-			}
-			
-			_, imgKey, err := v4.Extract(ctx, process)
-			if err == nil && imgKey != "" {
-				a.ImgKey = imgKey
-				log.Info().Msg("成功补全图片密钥")
-			} else {
-				log.Warn().Msg("补全图片密钥失败，仅返回数据库密钥")
-			}
-			
-			return a.Key, a.ImgKey, nil
-		}
 	}
 
-	// 2. 如果没有Data Key -> 走标准流程 (DLL)
+	// 2. 如果没有Data Key -> 走标准流程（内置提取器）
 	// 刷新进程状态
 	if err := a.RefreshStatus(); err != nil {
 		return "", "", errors.RefreshProcessStatusFailed(err)
 	}
 
-	// 注意：不再检查账号状态是否为online
-	// 因为DLL提取器支持在未登录状态下工作
-	// 用户可以在获取密钥过程中登录微信
-
-	// 创建密钥提取器 - 使用新的接口，传入平台和版本信息
+	// 创建密钥提取器（内置实现）
 	extractor, err := key.NewExtractor(a.Platform, a.Version)
 	if err != nil {
 		return "", "", err
@@ -313,38 +253,29 @@ func (a *Account) GetKey(ctx context.Context) (string, string, error) {
 		return "", "", err
 	}
 
-	// 对于 Windows V4：
-	// - DLL 提取器（InitializeHook/注入）不依赖 DataDir，应在微信进程出现后立即执行；
-	// - 只有在非 DLL（纯内存扫描）模式下，才需要等待 DataDir 就绪来提升验证成功率。
-	if isV4 && process.DataDir == "" && a.Platform == "windows" {
-		if _, ok := extractor.(*windows.DLLExtractor); ok {
-			log.Info().Msg("检测到V4版本且数据目录未就绪，将先初始化DLL Hook（无需等待登录），登录后打开聊天窗口即可触发密钥获取")
-		} else {
-			log.Info().Msg("检测到V4版本且数据目录未就绪（非DLL模式），等待微信登录...")
-			for i := 0; i < 30; i++ {
-				time.Sleep(1 * time.Second)
-				if err := a.RefreshStatus(); err == nil {
-					if p, err := GetProcess(a.Name); err == nil && p.DataDir != "" {
-						process = p
-						a.DataDir = p.DataDir
-						log.Info().Msgf("数据目录已就绪: %s", p.DataDir)
-						break
-					}
+	if isV4 && process.DataDir == "" && a.Platform == "darwin" {
+		log.Info().Msg("检测到V4版本且数据目录未就绪，等待微信登录...")
+		for i := 0; i < 30; i++ {
+			time.Sleep(1 * time.Second)
+			if err := a.RefreshStatus(); err == nil {
+				if p, err := GetProcess(a.Name); err == nil && p.DataDir != "" {
+					process = p
+					a.DataDir = p.DataDir
+					log.Info().Msgf("数据目录已就绪: %s", p.DataDir)
+					break
 				}
 			}
 		}
 	}
 
 	// 只有在DataDir存在时才创建验证器
-	// 对于DLL方式，微信可能未登录，DataDir可能为空或路径不存在
 	var validator *decrypt.Validator
 	if process.DataDir != "" {
 		log.Info().Msgf("准备创建验证器，DataDir: %s", process.DataDir)
 		validator, err = decrypt.NewValidator(process.Platform, process.Version, process.DataDir)
 		if err != nil {
-			// 如果创建验证器失败，记录警告但不返回错误
-			// 因为DLL方式可以不依赖验证器
-			log.Warn().Err(err).Msg("创建验证器失败，将继续尝试获取密钥（DLL方式可能不需要验证器）")
+			// 记录警告但不阻塞，提取器可按自身策略继续尝试。
+			log.Warn().Err(err).Msg("创建验证器失败，将继续尝试获取密钥")
 			validator = nil
 		}
 	}
@@ -354,8 +285,6 @@ func (a *Account) GetKey(ctx context.Context) (string, string, error) {
 	}
 
 	// 提取密钥
-	// 注意：如果这是V4，且DLL只拿到Data Key，dll_extractor内部的fallback机制会被触发
-	// 自动去跑原生扫描来拿Image Key
 	dataKey, imgKey, err := extractor.Extract(ctx, process)
 	if err != nil {
 		return "", "", err
@@ -374,9 +303,11 @@ func (a *Account) GetKey(ctx context.Context) (string, string, error) {
 
 // GetImageKey 仅尝试获取图片密钥（使用原生扫描器）
 func (a *Account) GetImageKey(ctx context.Context) (string, error) {
-	// 只有Windows V4支持此功能
-	if a.Platform != "windows" || a.Version != 4 {
-		return "", fmt.Errorf("只支持Windows微信V4版本获取图片密钥")
+	if a.Version != 4 {
+		return "", fmt.Errorf("仅支持微信V4版本获取图片密钥")
+	}
+	if a.Platform != "darwin" {
+		return "", fmt.Errorf("当前平台暂不支持获取图片密钥: %s", a.Platform)
 	}
 
 	// 刷新进程状态
@@ -409,27 +340,30 @@ func (a *Account) GetImageKey(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("数据目录未就绪，无法进行图片密钥扫描，请确保微信已登录")
 	}
 
-	// 准备验证器
+	// 统一走 Extractor + Validator 流程。
 	validator, err := decrypt.NewValidator(process.Platform, process.Version, process.DataDir)
 	if err != nil {
 		return "", fmt.Errorf("创建验证器失败(请确保已浏览过图片以生成缓存): %v", err)
 	}
-
-	// 直接调用原生V4扫描器
-	v4 := windows.NewV4Extractor()
-	v4.SetValidate(validator)
-	
-	log.Info().Msg("正在启动内存扫描以获取图片密钥...")
-	_, imgKey, err := v4.Extract(ctx, process)
+	extractor, err := key.NewExtractor(process.Platform, process.Version)
 	if err != nil {
 		return "", err
 	}
-	
+	extractor.SetValidate(validator)
+
+	log.Info().Msg("正在启动内存扫描以获取图片密钥...")
+	imageCtx := context.WithValue(ctx, "image_key_only", true)
+	dataKey, imgKey, err := extractor.Extract(imageCtx, process)
+	if err != nil {
+		return "", err
+	}
+	if dataKey != "" {
+		a.Key = dataKey
+	}
 	if imgKey != "" {
 		a.ImgKey = imgKey
 		return imgKey, nil
 	}
-
 	return "", fmt.Errorf("未能获取到图片密钥")
 }
 

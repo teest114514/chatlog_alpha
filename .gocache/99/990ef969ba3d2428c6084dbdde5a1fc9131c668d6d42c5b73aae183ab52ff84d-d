@@ -1,0 +1,12 @@
+./base_copier.go
+./build_copier.go
+./deepcopy.go
+./errors.go
+./iface_copier.go
+./map_copier.go
+./map_to_struct_copier.go
+./slice_copier.go
+./struct_copier.go
+./struct_tag.go
+./struct_to_map_copier.go
+./util.go

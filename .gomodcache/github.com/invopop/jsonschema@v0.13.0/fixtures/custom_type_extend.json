@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/schema-extend-test",
+  "$ref": "#/$defs/SchemaExtendTest",
+  "$defs": {
+    "SchemaExtendTest": {
+      "properties": {
+        "LastName": {
+          "type": "string",
+          "description": "some extra words"
+        },
+        "middle_name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "LastName"
+      ]
+    }
+  }
+}

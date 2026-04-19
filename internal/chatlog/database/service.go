@@ -30,6 +30,8 @@ type Service struct {
 
 type Config interface {
 	GetWorkDir() string
+	GetDataDir() string
+	GetDataKey() string
 	GetPlatform() string
 	GetVersion() int
 	GetWebhook() *conf.Webhook
@@ -44,7 +46,14 @@ func NewService(conf Config) *Service {
 }
 
 func (s *Service) Start() error {
-	db, err := wechatdb.New(s.conf.GetWorkDir(), s.conf.GetPlatform(), s.conf.GetVersion(), s.conf.GetWalEnabled())
+	dbPath := s.conf.GetWorkDir()
+	platform := s.conf.GetPlatform()
+	version := s.conf.GetVersion()
+	if platform == "darwin" && version == 4 {
+		// darwin v4 使用内置 wcdb_api 兼容查询链路，直接面向原始 db_storage。
+		dbPath = s.conf.GetDataDir()
+	}
+	db, err := wechatdb.New(dbPath, platform, version, s.conf.GetWalEnabled(), s.conf.GetDataKey())
 	if err != nil {
 		return err
 	}

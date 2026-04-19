@@ -1,0 +1,3 @@
+SPS 1 len 25B: 6764001eacd940a02ff9610000030001000003003c8f162d96
+PPS 1 len 5B: 68ebecb22c
+Codecs parameter (assuming avc1) from SPS id 0: avc1.64001E

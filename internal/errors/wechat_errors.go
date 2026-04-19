@@ -13,7 +13,6 @@ var (
 	ErrSIPEnabled                    = New(nil, http.StatusBadRequest, "SIP is enabled")
 	ErrValidatorNotSet               = New(nil, http.StatusBadRequest, "validator not set")
 	ErrNoValidKey                    = New(nil, http.StatusBadRequest, "no valid key found")
-	ErrWeChatDLLNotFound             = New(nil, http.StatusBadRequest, "WeChatWin.dll module not found")
 )
 
 func PlatformUnsupported(platform string, version int) *Error {

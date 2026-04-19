@@ -1,270 +1,239 @@
 # chatlog_alpha
 
-原 [chatlog](https://github.com/sjzar/chatlog) 项目的二开版本，导入自 [xiaofeng2042 的分支](https://github.com/xiaofeng2042/chatlog)，以防止上游删库后分支被自动删除。
+微信 4.x 聊天记录本地查询工具（macOS），支持：
+- 重启微信后自动提取 Data Key（内置实现，不依赖外部 DLL）
+- 获取 Image Key（内存扫描）
+- 查询 `db_storage` 下多库数据
+- 提供 HTTP + MCP 接口（wx-cli 风格）
 
-未经修改的源代码在 [main 分支](https://github.com/CJYKK/chatlog_backup/tree/main)，本人不对代码中的任何内容负责。
+## ⚠ 方案 1（可执行文件自动 root）必读
 
-感谢 [wx_key](https://github.com/ycccccccy/wx_key) 项目提供的解密源码
+若你选择“方案 1（setuid root）”，请在编译后执行：
 
-目前测试成功微信版本：4.1.5.30
-
-## 重要提示
-请务必把dll文件放在exe可执行文件同目录下的lib/windows_x64文件夹下
-# 如发布页wx_key1.dll工作不正常，请尝试使用wx_key2.dll
-
-请务必使用重启获取秘钥，而不是直接点击解密数据
-
-## 更新日志
-
-### 2026年1月25日
-- **CI/CD 优化**：
-  - **工作流配置**：修改 GitHub Actions 配置，不再对 Markdown 文档 (`.md`) 的更改触发构建流程，节省 CI 资源。
-
-### 2026年1月24日
-- **WAL 模式接口稳定性修复**：
-  - **问题修复**：修复了在 WAL 模式下，因解密后残留加密的 WAL/SHM 文件导致 SQLite 读取主数据库失败（表现为接口返回空数组）的严重 Bug。
-  - **机制优化**：移除了 `OpenDB` 时的 WAL 文件同步逻辑，并新增清理机制：在解密完成后强制删除目标目录下的 `.db-wal` 和 `.db-shm` 文件，确保 SQLite 仅读取已解密的主数据库文件。
-
-### 2026年1月22日
-- **自动解密增量优化（实验性，延迟降低至500ms至3s）**：
-  - **WAL 增量写入**：开启 WAL 后，首次全量解密到工作目录，后续监听 data dir 的 WAL/SHM 并增量写入工作目录数据库。
-  - **实验性提示**：该功能目前为实验性，遇到异常会回退全量解密以保证一致性。
-
-### 2026年1月19日
-- **消息内容解压缩支持**：
-  - **ZSTD 解压缩**：为消息表 (`message`) 的 `message_content` 字段添加 ZSTD 解压缩功能，现在可以正确显示被压缩存储的消息内容，确保消息以纯文本形式正常展示。
-  - **数据源层优化**：在 `internal/wechatdb/datasource/v4` 数据源层实现自动检测和解压缩逻辑，透明处理压缩和未压缩的消息内容。
-- **错误处理改进**：优化了 chatlog 路由中无效时间参数的错误处理逻辑，提升接口稳定性。
-- **UI 布局调整**：微调 HTTP 控制台表格列表视图的 CSS 样式，改进显示效果。
-
-### 2026年1月14日
-- **朋友圈（SNS）支持**：
-  - **数据库集成**：新增 `sns.db` 数据库支持，自动识别并加载朋友圈数据。
-  - **智能解析引擎**：实现了 XML 内容解析器，自动提取朋友圈关键信息：
-    - 基本信息：发布时间、昵称、内容描述
-    - 位置信息：城市、经纬度、POI 名称、地址
-    - 媒体类型：自动识别图片、视频、文章、视频号等多种内容类型
-    - 结构化数据：图片数量、视频时长、文章标题与链接、视频号信息等
-  - **URL 格式优化**：修复链接中 HTML 转义字符问题，自动将 `&amp;`、`&lt;`、`&gt;` 等转义字符还原为标准 URL 格式，确保链接可正常访问。
-  - **检索页面**：新增"朋友圈检索"子页面，提供便捷的查询界面。
-  - **多格式输出**：支持以下输出格式：
-    - **JSON 格式**：结构化数据，便于程序处理
-    - **纯文本格式**：带 emoji 图标的易读格式
-    - **原始 XML 格式**：保留完整的数据结构，方便调试
-    - **CSV/Excel 导出**：便于数据分析
-  - **查询功能**：支持按用户名筛选、限制数量、分页查询。
-  - **浏览器集成**：SNS 数据库会自动显示在"当前已解密数据库"列表中，可使用数据库浏览器直接查看所有表结构和数据。
-
-### 2026年1月13日
-- **图片访问优化**：
-  - **MD5-Path 缓存机制**：新增 md5 到 path 的映射缓存，当调用 `/api/v1/chatlog` 接口时自动构建图片文件的 md5 与路径映射关系。
-  - **智能文件查找**：优化 `/image/{md5}` 接口，当通过 hardlink 表无法找到图片时，会自动使用缓存中的 path 并按优先级尝试 `.dat`（原图）、`_h.dat`（高清图）、`_t.dat`（缩略图）等后缀进行文件匹配。
-  - **Rec 目录支持**：修复图片路径构造问题，现在支持从 `image_hardlink_info_v4` 表的 `extra_buffer` 字段提取 `Rec` 子目录信息（如 `bedce00beba0d49c`），完整路径格式为 `msg/attach/{Dir1}/{Dir2}/Rec/{extraBuffer}/Img/{FileName}`，解决部分图片文件位于 `Rec` 子目录时无法访问的问题。
-  - **无后缀文件支持**：增强了图片解密逻辑，现在自动将无后缀文件（如文件名为 "1"）尝试当作 .dat 文件进行解密，解密失败时降级为普通文件返回，确保所有图片文件都能正确访问。
-  - **递回退逻辑**：实现了多层回退机制 - hardlink 表查询（含 Rec 目录）→ 缓存路径匹配 → 目录递归搜索，确保图片访问的高成功率。
-  - **适用场景**：特别适用于微信 v4 版本中 `packed_info_data` 提供的路径信息、部分图片存储在 Rec 子目录、以及文件名无后缀的场景。
-
-### 2025年12月30日
-- **ChatLab 标准化支持**：
-  - **全量适配**：消息检索功能现已完全适配 [ChatLab 标准化格式 (v0.0.1)](./chatlab.md)，支持导出包含完整元数据、成员信息及标准化消息类型的 JSON 文件。
-  - **类型映射增强**：实现了微信私聊与群聊消息到 ChatLab 标准消息类型（文本、图片、语音、引用、合并转发等）的精确转换。
-- **UI 交互增强**：
-  - **一键下载功能**：HTTP 控制台预览框新增“下载”按钮，支持将检索结果、导出数据直接保存为 `.json` 或 `.txt` 文件。
-  - **JSON 格式化预览**：ChatLab 格式数据在前端支持自动缩进格式化，提升可读性。
-
-### 2025年12月27日
-- **系统稳定性修复**：
-  - **临时文件清理优化**：修复了在 Windows 环境下开启“自动解密”时，因文件被锁定导致临时文件无法删除、进而占用大量磁盘空间的问题。引入了后台自动重试机制，确保锁定的文件在释放后能被正确清理。
-- **UI 交互增强**：
-  - **缓存占用显示**：在 TUI 界面的 "Work Usage" 标签中增加了缓存目录占用大小的实时显示，便于用户监控磁盘使用情况。
-
-### 2025年12月26日
-- **数据库管理与调试功能增强**：
-  - **可视化数据库浏览器**：在 HTTP 控制台新增“仪表盘 & 数据库”标签页，支持直接浏览当前已解密的数据库。
-  - **表数据检索**：支持点击数据库查看所有表列表，并可对任意表进行分页数据浏览。
-  - **关键词全文搜索**：在表数据视图中支持输入关键词，自动对该表所有列进行模糊匹配 (`LIKE`) 搜索。
-  - **SQL 控制台**：内置 SQL 执行工具，支持直接编写运行 `SELECT` 语句查询原始数据。
-  - **多格式导出**：全面支持将数据库表数据、SQL 查询结果导出为 **Excel (xlsx)** 或 **CSV** 格式。
-- **系统安全性与稳定性**：
-  - **应用互斥功能**：引入单实例检测机制，防止程序多开。
-  - **进程管理**：当检测到已有实例运行时，支持在终端提示并允许强制关闭旧进程以启动新实例。
-  - **Windows 路径兼容性修复**：修复了在 Windows 环境下因路径分隔符不匹配导致的部分文件解密失败及前端路径显示重复的问题。
-
-### 2025年12月18日
-- **MCP 扩展功能大版本更新**：
-  - **媒体感知服务 (Media Perception)**：
-    - 新增 `get_media_content` 工具：支持根据消息 ID 获取解码后的媒体文件（图片自动解密、语音转 MP3）。
-    - 新增 `ocr_image_message` 工具：支持对特定图片消息进行视觉 OCR 解析（由模型驱动）。
-  - **实时消息交互 (Real-time Interaction)**：
-    - 新增 `subscribe_new_messages` 工具：允许模型通过资源更新机制订阅特定联系人或群组的实时消息流。
-    - 新增 `unsubscribe_new_messages` 工具：支持取消已有的消息订阅。
-    - 新增 `get_active_subscriptions` 工具：获取当前活跃的订阅列表及其推送地址。
-    - **订阅持久化**：所有订阅信息自动保存至本地，程序重启后可自动恢复推送。
-    - **推送状态监控**：可在控制台实时查看 Webhook 推送的成功、失败状态及详细错误原因。
-    - 新增 `send_webhook_notification` 工具：允许模型在分析完成后触发外部 Webhook。
-  - **社交画像与分析 (Social Insights)**：
-    - 新增 `analyze_chat_activity` 工具：统计发言频率、活跃时段（带柱状图可视化模拟）。
-    - 新增 `get_user_profile` 工具：获取详细的联系人备注、群成员、群主等背景信息。
-  - **增强型提示词模板 (Prompts)**：
-    - 内置 `chat_summary_daily`（每日摘要）、`conflict_detector`（情绪冲突检测）、`relationship_milestones`（关系里程碑）模板。
-  - **跨应用检索**：
-    - 新增 `search_shared_files` 工具：专项搜索聊天记录中发送的共享文件元数据。
-- **系统底层优化**：
-  - **唯一消息 ID 系统**：引入 `(timestamp * 1000000 + local_id)` 算法，彻底解决多媒体消息在同一秒内发送导致的 ID 冲突问题。
-  - **多格式适配**：PlainText、CSV、JSON 均已同步支持显示唯一的 `MessageID` (seq)。
-  - **文本清理**：优化聊天记录输出，简化图片、语音、视频消息的显示标签（例如 `[图片]`），使模型处理更高效。
-
-### 2025年12月16日
-- **自动解密机制优化**：
-  - 增加开启前预检：开启自动解密前会自动运行一次解密测试，失败则禁止开启。
-  - 增加故障自动熔断：运行过程中若解密失败（如密钥失效），会自动停止服务并弹窗提示，防止错误循环。
-- **UI 交互增强**：
-  - 底部状态栏增加最新消息预览：实时显示最新一条消息的发送人、时间及内容摘要。
-  - 优化发送人显示逻辑：昵称缺失时自动降级显示账号 ID。
-- **修复**：
-  - 修复批量解密时即便所有文件失败仍提示成功的 Bug。
-  - 修复图片密钥获取在样本未就绪/选到不匹配备用样本时“扫描很多轮仍无法获取”的问题：改为等待 `*_t.dat` 就绪后再开始扫描。
-
-### 2025年12月15日
-- **重构密钥获取逻辑**：实现 Data Key (DLL) 和 Image Key (原生扫描) 的职责分离与并行执行。
-- **优化图片密钥获取**：适配 Dart 版逻辑，支持 60 秒轮询等待，允许用户后置操作（打开图片）。
-- **修复与优化**：修复未登录时扫描崩溃问题；增加详细的扫描日志；优化 UI 菜单交互。
-- **暂停 V3 支持**：集中资源优化 V4 体验。
-
-### 2025年12月14日
-- 优化临时账户名称管理。
-- 改进微信进程状态监控逻辑。
-
-## 项目概述
-
-这是一个微信聊天记录解密工具，当前仅支持 Windows 平台。工具通过注入DLL或内存扫描的方式获取微信数据库密钥，然后解密微信聊天数据库文件。
-
-**注意：当前版本已移除对微信 3.x 版本的支持，仅支持微信 4.x。**
-
-## 推荐工具
-
-> **[ChatLab](https://chatlab.fun/)**
-> 
-> 一个免费、开源、本地化的，专注于分析聊天记录的应用。通过 AI Agent 和灵活的 SQL 引擎，你可以自由地拆解、查询甚至重构你的社交数据。
-> 
-> 本项目导出的 `ChatLab JSON` 格式可直接导入该工具进行深度分析。
-
-## 主要功能
-
-- **密钥获取**：
-  - **数据库密钥 (Data Key)**：通过 DLL 注入 (`wx_key.dll`) 高效获取。
-  - **图片密钥 (Image Key)**：通过原生内存特征扫描获取，无需 DLL 支持（适配 `img-key.dart` 逻辑）。
-- **并行获取**：支持同时并行获取两种密钥，提高效率。
-- **数据库解密**：解密微信加密的SQLite数据库文件。
-- **可视化浏览器**：HTTP 管理界面支持直接浏览数据库、查看表内容、关键词搜索。
-- **SQL 控制台**：支持直接执行 SQL 语句查询解密后的数据库。
-- **标准化导出**：全面适配 ChatLab 标准化格式 (v0.0.1)，支持跨平台数据分析。
-- **多格式导出**：支持将聊天记录、联系人、原始数据库表数据导出为 Excel (xlsx) 或 CSV 格式。
-- **图片解密**：解密微信加密的图片文件（需要图片密钥）。
-- **自动监控**：监控微信数据目录，自动解密新增数据。
-- **HTTP/MCP 服务**：提供本地 HTTP 服务，完整支持 MCP 协议（Model Context Protocol），便于与 AI 助手集成。
-- **应用互斥**：防止程序多开，确保运行稳定性。
-
-
-## 完整使用逻辑
-
-#### 获取数据密钥 (Data Key)
-1. 启动 `chatlog_alpha.exe`。
-2. 启动微信（先不要点击登录）。
-3. 等待 chatlog 识别到微信进程 PID。
-4. 点击微信登录。
-5. 程序通过 DLL 自动捕获数据密钥。
-
-#### 获取图片密钥 (Image Key)
-1. 确保微信已登录。
-2. 在 chatlog 主界面选择 **"获取图片密钥"** 选项。
-3. 程序会先等待图片验证样本就绪（需要微信生成缩略图缓存文件 `*_t.dat`）。
-4. **在微信中打开任意一张聊天图片**（触发缓存/密钥相关数据生成）。
-5. 当 `*_t.dat` 生成后，程序会提示 "正在进行第 X 轮内存扫描... 请打开任意图片" 并开始扫描。
-6. 程序自动捕获内存中的图片密钥并返回。
-
-> 说明：不需要“很快”打开图片；只要最终打开过图片让 `*_t.dat` 生成，程序就能稳定获取图片密钥。
-
-*注：解密数据操作会自动尝试获取两种密钥。*
-
-## 使用说明
-
-### 界面操作
-程序启动后会出现TUI界面，主要功能包括：
-
-1. **获取图片密钥**：专门用于扫描内存获取图片密钥（需微信V4）。
-2. **重启并获取密钥**：结束当前微信进程，重启后尝试获取密钥。
-3. **解密数据**：一键解密数据库（包含自动获取 Data Key 的逻辑）。
-4. **启动HTTP服务**：启动本地HTTP & MCP服务器。
-5. **开启自动解密**：监控数据目录，自动解密新增数据。
-6. **设置**：配置应用程序选项。
-7. **切换账号**：切换当前操作的账号。
-8. **退出**：退出程序。
-
-### 密钥获取机制详解
-
-1. **Data Key (DLL 模式)**：
-   - 依赖 `wx_key.dll`。
-   - 通过 Hook 微信关键函数获取。
-   - 推荐在微信启动/登录阶段获取。
-
-2. **Image Key (原生扫描模式)**：
-   - 不依赖 DLL，使用 Go 原生代码实现。
-   - 采用暴力内存扫描 + 特征匹配（32字节字母数字串）+ 验证（AES解密缩略图头）。
-   - **交互式获取**：支持长达 60 秒的轮询等待，允许用户在点击按钮后从容打开图片。
-   - **关键依赖**：验证必须使用缩略图缓存样本 `*_t.dat`（由“打开聊天图片”触发生成）。样本未就绪时会持续等待提示，而不会进行无效扫描。
-   - **稳定性说明**：为避免选到不匹配的备用 `.dat` 样本导致“扫描很多轮仍失败”，当前仅在检测到 `*_t.dat` 后才认为图片验证就绪并开始扫描。
-
-### 临时账户管理
-
-程序支持临时账户管理，当微信未登录或重启时：
-
-- **临时账户名称**：格式为 `未登录微信_PID`。
-- **状态监控**：实时监控微信进程状态变化。
-- **自动切换**：微信登录后自动切换为真实账户名称。
-
-## 配置说明
-
-### 配置文件
-配置文件位于用户目录下的 `.chatlog/config.json`。
-
-### 重要提示
-
-1. **ffmpeg依赖**：
-   对dat转换一定要安装ffmpeg，并且在系统变量设置bin目录的path，否则会显式报错。
-
-2. **权限**：
-   程序需要管理员权限来读取微信进程内存。
-
-3. **V4 图片密钥**：
-   对于微信 V4，图片密钥获取需要用户配合打开图片以生成 `*_t.dat`。如果长时间未获取，请检查：
-   - 微信是否已登录成功（不能停留在登录界面）
-   - 是否打开过任意聊天图片（触发生成 `*_t.dat`）
-
-## 文件结构
-
-```
-chatlog_alpha/
-├── main.go                    # 程序入口
-├── internal/
-│   ├── chatlog/              # 聊天记录处理核心
-│   ├── wechat/               # 微信相关功能
-│   │   ├── wechat.go         # 账号管理与密钥获取入口
-│   │   ├── key/              # 密钥提取器 (DLL & Native)
-│   │   │   ├── windows/      # Windows 实现 (v4_windows.go, dll_extractor.go)
-│   │   ├── decrypt/          # 解密器
-│   │   └── process/          # 进程检测
-│   └── ui/                   # 用户界面组件
-├── pkg/
-│   ├── util/                 # 工具函数 (dat2img 等)
-├── lib/
-│   └── windows_x64/          # wx_key.dll
+```bash
+BIN_PATH="/你的项目路径/dist/chatlog-mac"
+sudo chown root:wheel "$BIN_PATH"
+sudo chmod 4755 "$BIN_PATH"
+ls -l "$BIN_PATH"
 ```
 
-## 许可证
+或者在项目根目录直接执行（自动取当前目录）：
 
-本项目基于原chatlog项目，具体许可证信息请参考原项目。
+```bash
+BIN_PATH="$(pwd)/dist/chatlog-mac"
+sudo chown root:wheel "$BIN_PATH"
+sudo chmod 4755 "$BIN_PATH"
+ls -l "$BIN_PATH"
+```
+
+看到权限类似 `-rwsr-xr-x` 说明生效。每次重新编译后都需要重新执行上述命令。
+
+> 重要：仅有 root 权限仍可能不够。若要稳定进行内存扫描（取 Data Key / Image Key），通常还需要先关闭 SIP（System Integrity Protection）。
+
+## 当前状态（2026-04）
+
+- 已移除 Windows 支持与外部 `wx_key.dll` 依赖
+- macOS V4 已接入内置 key 扫描与 `all_keys.json` 回退/兼容流程
+- HTTP 接口默认输出 `YAML`，可通过 `format=json` 输出 JSON
+- 旧接口（如 `/api/v1/chatlog`、`/api/v1/session`、`/api/v1/contact`、`/api/v1/chatroom`、`/api/v1/sns`）已移除
+
+## 运行环境
+
+- Go 1.22+（建议）
+- 微信 4.x
+- 平台：macOS
+
+macOS 额外要求：
+- 建议使用 `sudo` 启动程序（内存读取依赖 `task_for_pid` 权限）
+- 建议提前关闭 SIP（否则即使 root 也可能无法读取微信进程内存）
+- 需要启用 `cgo`（未启用时无法进行 macOS 内存扫描）
+
+## 快速开始
+
+### 1) 启动 TUI
+
+```bash
+go run .
+```
+
+或编译后运行：
+
+```bash
+go build -o chatlog ./cmd/chatlog
+./chatlog
+```
+
+### 2) 推荐操作顺序（macOS）
+
+1. 在 TUI 点击“重启并获取密钥”
+2. 等微信重启后完成登录，并打开聊天窗口
+3. 程序会优先尝试：
+   - 读取已存在 `all_keys.json`
+   - 或执行内存扫描并写入/更新 `all_keys.json`
+4. 点击“解密数据”后可启动 HTTP 服务查询
+
+## `all_keys.json` 说明
+
+`all_keys.json` 用于保存每个加密数据库文件对应的 `enc_key`，典型内容如下：
+
+```json
+{
+  "message/message_0.db": { "enc_key": "..." },
+  "contact/contact.db": { "enc_key": "..." }
+}
+```
+
+作用：
+- key 扫描结果持久化
+- 程序重启后可直接复用
+- 与 `wechat-decrypt` / `wx-cli` 流程兼容
+
+常见路径（按账号目录）：
+- `<data-dir>/all_keys.json`
+- `<data-dir>/../all_keys.json`
+
+## 常用命令（CLI）
+
+### 启动 HTTP 服务
+
+```bash
+chatlog server -a :5030 -p darwin -v 4 -d <wechat_data_dir>
+```
+
+### 手动解密
+
+```bash
+chatlog decrypt -p darwin -v 4 -d <wechat_data_dir> -k <data_key>
+```
+
+### 批量解密 `.dat` 图片
+
+```bash
+chatlog batch-decrypt --data-dir <wechat_data_dir> --data-key <data_key> --platform darwin --version 4
+```
+
+### macOS key helper
+
+```bash
+chatlog mac-key-helper --pid <wechat_pid> --data-dir <wechat_data_dir>
+```
+
+## HTTP 接口
+
+基础：
+- `GET /health`
+- `GET /api/v1/ping`
+
+媒体：
+- `GET /image/*key`
+- `GET /video/*key`
+- `GET /file/*key`
+- `GET /voice/*key`
+- `GET /data/*path`
+
+wx-cli 兼容查询：
+- `GET /api/v1/sessions`
+- `GET /api/v1/history`
+- `GET /api/v1/search`
+- `GET /api/v1/unread`
+- `GET /api/v1/members`
+- `GET /api/v1/new_messages`
+- `GET /api/v1/stats`
+- `GET /api/v1/favorites`
+- `GET /api/v1/sns_notifications`
+- `GET /api/v1/sns_feed`
+- `GET /api/v1/sns_search`
+- `GET /api/v1/contacts`
+- `GET /api/v1/chatrooms`
+
+数据库调试：
+- `GET /api/v1/db`
+- `GET /api/v1/db/tables`
+- `GET /api/v1/db/data`
+- `GET /api/v1/db/query`
+- `POST /api/v1/cache/clear`
+
+### 输出格式
+
+默认：`YAML`
+
+可选：`JSON`
+
+示例：
+
+```bash
+curl "http://127.0.0.1:5030/api/v1/history?chat=xxx&limit=50"
+curl "http://127.0.0.1:5030/api/v1/history?chat=xxx&limit=50&format=json"
+```
+
+## MCP
+
+端点：
+- `ANY /mcp`
+- `ANY /sse`
+- `ANY /message`
+
+当前 MCP Tools：
+- `current_time`
+- `get_media_content`
+- `ocr_image_message`
+- `send_webhook_notification`
+- `get_user_profile`
+- `search_shared_files`
+- `wx_ping`
+- `wx_contacts`
+- `wx_chatrooms`
+- `wx_sessions`
+- `wx_history`
+- `wx_search`
+- `wx_unread`
+- `wx_members`
+- `wx_new_messages`
+- `wx_stats`
+- `wx_favorites`
+- `wx_sns_notifications`
+- `wx_sns_feed`
+- `wx_sns_search`
+
+## macOS 排障
+
+### 1) 提示权限不足 / `task_for_pid` 失败
+
+现象：
+- `scan memory failed`
+- `需要 root + task_for_pid 权限`
+
+处理：
+- 使用 `sudo` 启动程序
+- 确保微信已登录并进入聊天界面后再触发扫描
+- 若仍失败，优先走 `all_keys.json` 方式（先成功生成一次）
+
+### 2) 提示未找到 `all_keys.json`
+
+处理：
+- 先执行“重启并获取密钥”完成一次扫描
+- 确认账号目录下已生成 `all_keys.json`
+- 检查文件读写权限
+
+### 3) 图片密钥 60 秒超时
+
+处理：
+- 登录微信后打开任意聊天图片，触发 `*_t.dat` 缓存
+- 再次点击“获取图片密钥”
+
+## 目录结构（核心）
+
+- `cmd/chatlog`：CLI 入口
+- `internal/chatlog`：TUI、流程编排、HTTP/MCP
+- `internal/wechat/key`：平台密钥提取实现
+- `internal/wechat/decrypt`：数据库解密实现
+- `internal/wechatdb`：数据库访问与查询
+
+## 安全与隐私
+
+- 所有处理在本地完成
+- 请妥善保管解密后的数据与密钥文件
 
 ## 免责声明
 
-本项目仅供学习和研究使用，请勿用于非法用途。使用本工具产生的任何后果由使用者自行承担。
+详见 [DISCLAIMER.md](./DISCLAIMER.md)

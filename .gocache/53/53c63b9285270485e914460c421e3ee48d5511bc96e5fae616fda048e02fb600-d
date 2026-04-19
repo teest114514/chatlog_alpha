@@ -1,0 +1,15 @@
+./array.go
+./console.go
+./context.go
+./ctx.go
+./encoder.go
+./encoder_json.go
+./event.go
+./fields.go
+./globals.go
+./go112.go
+./hook.go
+./log.go
+./sampler.go
+./syslog.go
+./writer.go

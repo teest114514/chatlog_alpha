@@ -8,7 +8,7 @@ import (
 
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
-	v4 "github.com/sjzar/chatlog/internal/wechatdb/datasource/v4"
+	"github.com/sjzar/chatlog/internal/wechatdb/datasource/wcdb"
 )
 
 type DataSource interface {
@@ -51,10 +51,10 @@ type DataSource interface {
 	Close() error
 }
 
-func New(path string, platform string, version int, walEnabled bool) (DataSource, error) {
+func New(path string, platform string, version int, walEnabled bool, dataKey string) (DataSource, error) {
 	switch {
-	case platform == "windows" && version == 4:
-		return v4.New(path, walEnabled)
+	case platform == "darwin" && version == 4:
+		return wcdb.New(path, dataKey)
 	default:
 		return nil, errors.PlatformUnsupported(platform, version)
 	}

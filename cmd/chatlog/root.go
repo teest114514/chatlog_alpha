@@ -13,7 +13,6 @@ import (
 )
 
 func init() {
-	// windows only
 	cobra.MousetrapHelpText = ""
 
 	rootCmd.PersistentFlags().BoolVar(&Debug, "debug", false, "debug")

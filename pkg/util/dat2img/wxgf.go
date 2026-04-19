@@ -82,7 +82,29 @@ func Wxam2pic(data []byte) ([]byte, string, error) {
 		}
 		return jpgData, JPG.Ext, nil
 	}
+	if out, ext, ok := extractEmbeddedImage(data); ok {
+		return out, ext, nil
+	}
 	return nil, "", fmt.Errorf("ffmpeg is not available, cannot convert this type of wxgf image")
+}
+
+func extractEmbeddedImage(data []byte) ([]byte, string, bool) {
+	type sig struct {
+		pat []byte
+		ext string
+	}
+	sigs := []sig{
+		{pat: []byte{0xFF, 0xD8, 0xFF}, ext: "jpg"},
+		{pat: []byte{0x89, 0x50, 0x4E, 0x47}, ext: "png"},
+		{pat: []byte{0x47, 0x49, 0x46, 0x38}, ext: "gif"},
+		{pat: []byte{0x42, 0x4D}, ext: "bmp"},
+	}
+	for _, s := range sigs {
+		if idx := bytes.Index(data, s.pat); idx >= 0 && idx < len(data) {
+			return data[idx:], s.ext, true
+		}
+	}
+	return nil, "", false
 }
 
 type Partitions struct {

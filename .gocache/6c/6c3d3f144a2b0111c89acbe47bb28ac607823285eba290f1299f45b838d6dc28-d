@@ -1,0 +1,9 @@
+./alias.go
+./basic.go
+./cast.go
+./indirect.go
+./map.go
+./number.go
+./slice.go
+./time.go
+./zz_generated.go

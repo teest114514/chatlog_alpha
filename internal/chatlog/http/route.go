@@ -3,18 +3,24 @@ package http
 import (
 	"embed"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"github.com/xuri/excelize/v2"
+	"gopkg.in/yaml.v3"
 
+	chatwechat "github.com/sjzar/chatlog/internal/chatlog/wechat"
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
 	"github.com/sjzar/chatlog/pkg/util"
@@ -44,6 +50,8 @@ func (s *Service) initBaseRouter() {
 	s.router.GET("/health", func(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+	// ping 不依赖数据库状态，放在中间件外层，保持可用性。
+	s.router.GET("/api/v1/ping", s.handlePing)
 
 	s.router.NoRoute(s.NoRoute)
 }
@@ -59,17 +67,29 @@ func (s *Service) initMediaRouter() {
 func (s *Service) initAPIRouter() {
 	api := s.router.Group("/api/v1", s.checkDBStateMiddleware())
 	{
-		api.GET("/chatlog", s.handleChatlog)
-		api.GET("/contact", s.handleContacts)
-		api.GET("/chatroom", s.handleChatRooms)
-		api.GET("/session", s.handleSessions)
-		api.GET("/sns", s.handleSNS)
+		api.GET("/sessions", s.handleSessionsCompat)
+		api.GET("/history", s.handleHistory)
+		api.GET("/search", s.handleSearchCompat)
+		api.GET("/unread", s.handleUnreadCompat)
+		api.GET("/members", s.handleMembersCompat)
+		api.GET("/new_messages", s.handleNewMessagesCompat)
+		api.GET("/stats", s.handleStatsCompat)
+		api.GET("/favorites", s.handleFavoritesCompat)
+		api.GET("/sns_notifications", s.handleSNSNotificationsCompat)
+		api.GET("/sns_feed", s.handleSNSFeedCompat)
+		api.GET("/sns_search", s.handleSNSSearchCompat)
+		api.GET("/contacts", s.handleContactsCompat)
+		api.GET("/chatrooms", s.handleChatRoomsCompat)
 		api.GET("/db", s.handleGetDBs)
 		api.GET("/db/tables", s.handleGetDBTables)
 		api.GET("/db/data", s.handleGetDBTableData)
 		api.GET("/db/query", s.handleExecuteSQL)
 		api.POST("/cache/clear", s.handleClearCache)
 	}
+}
+
+func (s *Service) handlePing(c *gin.Context) {
+	writeByFormat(c, gin.H{"pong": true}, c.Query("format"))
 }
 
 func (s *Service) initMCPRouter() {
@@ -97,13 +117,250 @@ func (s *Service) NoRoute(c *gin.Context) {
 	}
 }
 
+func formatMessageType(t int64) string {
+	switch t {
+	case model.MessageTypeText:
+		return "text"
+	case model.MessageTypeImage:
+		return "image"
+	case model.MessageTypeVoice:
+		return "voice"
+	case model.MessageTypeCard:
+		return "card"
+	case model.MessageTypeVideo:
+		return "video"
+	case model.MessageTypeAnimation:
+		return "sticker"
+	case model.MessageTypeLocation:
+		return "location"
+	case model.MessageTypeShare:
+		return "share"
+	case model.MessageTypeVOIP:
+		return "voip"
+	case model.MessageTypeSystem:
+		return "system"
+	default:
+		return strconv.FormatInt(t, 10)
+	}
+}
+
+func normalizeOutputFormat(raw string) (string, error) {
+	f := strings.ToLower(strings.TrimSpace(raw))
+	if f == "" {
+		return "yaml", nil
+	}
+	if f == "yaml" || f == "yml" {
+		return "yaml", nil
+	}
+	if f == "json" {
+		return "json", nil
+	}
+	return "", errors.InvalidArg("format")
+}
+
+func writeByFormat(c *gin.Context, payload interface{}, rawFormat string) {
+	format, err := normalizeOutputFormat(rawFormat)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	if format == "json" {
+		c.JSON(http.StatusOK, payload)
+		return
+	}
+	out, err := yaml.Marshal(payload)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	c.Data(http.StatusOK, "application/x-yaml; charset=utf-8", out)
+}
+
+func parseSinceUntil(qTime, qSince, qUntil string) (time.Time, time.Time, bool, error) {
+	qTime = strings.TrimSpace(qTime)
+	if qTime != "" {
+		start, end, ok := util.TimeRangeOf(qTime)
+		if !ok {
+			return time.Time{}, time.Time{}, false, errors.InvalidArg("time")
+		}
+		return start, end, true, nil
+	}
+
+	var (
+		start time.Time
+		end   time.Time
+		ok    bool
+	)
+	if strings.TrimSpace(qSince) != "" {
+		ts, err := strconv.ParseInt(strings.TrimSpace(qSince), 10, 64)
+		if err != nil {
+			return time.Time{}, time.Time{}, false, errors.InvalidArg("since")
+		}
+		start = time.Unix(ts, 0)
+		ok = true
+	}
+	if strings.TrimSpace(qUntil) != "" {
+		ts, err := strconv.ParseInt(strings.TrimSpace(qUntil), 10, 64)
+		if err != nil {
+			return time.Time{}, time.Time{}, false, errors.InvalidArg("until")
+		}
+		end = time.Unix(ts, 0)
+		ok = true
+	}
+	return start, end, ok, nil
+}
+
+func toInt64(v interface{}) int64 {
+	switch t := v.(type) {
+	case int64:
+		return t
+	case int:
+		return int64(t)
+	case float64:
+		return int64(t)
+	case string:
+		n, _ := strconv.ParseInt(strings.TrimSpace(t), 10, 64)
+		return n
+	case []byte:
+		n, _ := strconv.ParseInt(strings.TrimSpace(string(t)), 10, 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func toString(v interface{}) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case []byte:
+		return string(t)
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func appendUnique(list []string, v string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return list
+	}
+	for _, it := range list {
+		if it == v {
+			return list
+		}
+	}
+	return append(list, v)
+}
+
+func extractMediaRef(m *model.Message) (mediaType string, keys []string) {
+	if m == nil || m.Contents == nil {
+		return "", nil
+	}
+	get := func(k string) string {
+		v, ok := m.Contents[k]
+		if !ok {
+			return ""
+		}
+		return strings.TrimSpace(toString(v))
+	}
+
+	switch m.Type {
+	case model.MessageTypeImage:
+		mediaType = "image"
+		keys = appendUnique(keys, get("md5"))
+		keys = appendUnique(keys, get("path"))
+	case model.MessageTypeVideo:
+		mediaType = "video"
+		keys = appendUnique(keys, get("md5"))
+		keys = appendUnique(keys, get("rawmd5"))
+		keys = appendUnique(keys, get("path"))
+	case model.MessageTypeVoice:
+		mediaType = "voice"
+		keys = appendUnique(keys, get("voice"))
+	case model.MessageTypeShare:
+		if m.SubType == model.MessageSubTypeFile {
+			mediaType = "file"
+			keys = appendUnique(keys, get("md5"))
+			keys = appendUnique(keys, get("path"))
+		}
+	}
+	return mediaType, keys
+}
+
+func buildMediaPath(mediaType, key string) string {
+	mediaType = strings.TrimSpace(mediaType)
+	key = strings.TrimSpace(key)
+	if mediaType == "" || key == "" {
+		return ""
+	}
+	return "/" + mediaType + "/" + key
+}
+
+func filterByMsgType(messages []*model.Message, msgType int64) []*model.Message {
+	if msgType == 0 {
+		return messages
+	}
+	out := make([]*model.Message, 0, len(messages))
+	for _, m := range messages {
+		if m.Type == msgType {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func toHistoryMessage(m *model.Message, host string) gin.H {
+	content := m.Content
+	if content == "" {
+		content = m.PlainTextContent()
+	}
+	sender := m.SenderName
+	if sender == "" {
+		sender = m.Sender
+	}
+	out := gin.H{
+		"timestamp": m.Time.Unix(),
+		"time":      m.Time.Format("2006-01-02 15:04"),
+		"sender":    sender,
+		"content":   content,
+		"type":      formatMessageType(m.Type),
+		"local_id":  m.ID,
+	}
+	mediaType, mediaKeys := extractMediaRef(m)
+	if mediaType != "" && len(mediaKeys) > 0 {
+		mediaKey := mediaKeys[0]
+		mediaPath := buildMediaPath(mediaType, mediaKey)
+		out["media_type"] = mediaType
+		out["media_key"] = mediaKey
+		out["media_keys"] = mediaKeys
+		out["media_path"] = mediaPath
+		if strings.TrimSpace(host) != "" {
+			out["media_url"] = "http://" + host + mediaPath
+		}
+		if mediaType == "image" {
+			out["image_key"] = mediaKey
+			out["image_keys"] = mediaKeys
+			out["image_path"] = mediaPath
+			if strings.TrimSpace(host) != "" {
+				out["image_url"] = "http://" + host + mediaPath
+			}
+		}
+	}
+	return out
+}
+
 func (s *Service) handleChatlog(c *gin.Context) {
 
 	q := struct {
 		Time    string `form:"time"`
+		Since   string `form:"since"`
+		Until   string `form:"until"`
+		Chat    string `form:"chat"`
 		Talker  string `form:"talker"`
 		Sender  string `form:"sender"`
 		Keyword string `form:"keyword"`
+		MsgType int64  `form:"msg_type"`
 		Limit   int    `form:"limit"`
 		Offset  int    `form:"offset"`
 		Format  string `form:"format"`
@@ -114,10 +371,17 @@ func (s *Service) handleChatlog(c *gin.Context) {
 		return
 	}
 
-	var err error
-	start, end, ok := util.TimeRangeOf(q.Time)
-	if !ok {
-		errors.Err(c, errors.InvalidArg("time"))
+	talker := strings.TrimSpace(q.Talker)
+	if talker == "" {
+		talker = strings.TrimSpace(q.Chat)
+	}
+	if talker == "" {
+		errors.Err(c, errors.InvalidArg("talker"))
+		return
+	}
+	start, end, _, err := parseSinceUntil(q.Time, q.Since, q.Until)
+	if err != nil {
+		errors.Err(c, err)
 		return
 	}
 	if q.Limit < 0 {
@@ -128,30 +392,21 @@ func (s *Service) handleChatlog(c *gin.Context) {
 		q.Offset = 0
 	}
 
-	messages, err := s.db.GetMessages(start, end, q.Talker, q.Sender, q.Keyword, q.Limit, q.Offset)
+	keyword := q.Keyword
+	if strings.TrimSpace(keyword) != "" {
+		keyword = regexp.QuoteMeta(keyword)
+	}
+	messages, err := s.db.GetMessages(start, end, talker, q.Sender, keyword, q.Limit, q.Offset)
 	if err != nil {
 		errors.Err(c, err)
 		return
 	}
+	messages = filterByMsgType(messages, q.MsgType)
 
 	// Populate md5->path cache for media files
 	s.populateMD5PathCache(messages)
 
 	switch strings.ToLower(q.Format) {
-	case "chatlab":
-		talkerName := q.Talker
-		if len(messages) > 0 {
-			// Try to find a non-empty TalkerName from messages
-			for _, m := range messages {
-				if m.TalkerName != "" {
-					talkerName = m.TalkerName
-					break
-				}
-			}
-		}
-		
-		chatLabData := model.ConvertToChatLab(messages, q.Talker, talkerName)
-		c.JSON(http.StatusOK, chatLabData)
 	case "csv":
 		c.Writer.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s_%s_%s.csv", q.Talker, start.Format("2006-01-02"), end.Format("2006-01-02")))
@@ -216,241 +471,841 @@ func (s *Service) handleChatlog(c *gin.Context) {
 
 		for _, m := range messages {
 			// format=text 时，不传入 host，只显示 [图片] 等标签，保持简洁
-			c.Writer.WriteString(m.PlainText(strings.Contains(q.Talker, ","), util.PerfectTimeFormat(start, end), ""))
+			c.Writer.WriteString(m.PlainText(strings.Contains(talker, ","), util.PerfectTimeFormat(start, end), ""))
 			c.Writer.WriteString("\n")
 			c.Writer.Flush()
 		}
 	}
 }
 
-func (s *Service) handleContacts(c *gin.Context) {
-
+func (s *Service) handleSessionsCompat(c *gin.Context) {
 	q := struct {
-		Keyword string `form:"keyword"`
-		Limit   int    `form:"limit"`
-		Offset  int    `form:"offset"`
-		Format  string `form:"format"`
+		Query  string `form:"query"`
+		Limit  int    `form:"limit"`
+		Format string `form:"format"`
 	}{}
-
 	if err := c.BindQuery(&q); err != nil {
 		errors.Err(c, err)
 		return
 	}
+	if q.Limit <= 0 {
+		q.Limit = 20
+	}
+	sessions, err := s.db.GetSessions(q.Query, q.Limit, 0)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	items := make([]gin.H, 0, len(sessions.Items))
+	for _, sess := range sessions.Items {
+		isGroup := strings.HasSuffix(sess.UserName, "@chatroom")
+		chatType := "private"
+		if isGroup {
+			chatType = "group"
+		}
+		chat := sess.NickName
+		if chat == "" {
+			chat = sess.UserName
+		}
+		items = append(items, gin.H{
+			"chat":          chat,
+			"username":      sess.UserName,
+			"is_group":      isGroup,
+			"chat_type":     chatType,
+			"unread":        0,
+			"last_msg_type": "",
+			"last_sender":   "",
+			"summary":       sess.Content,
+			"timestamp":     sess.NTime.Unix(),
+			"time":          sess.NTime.Format("01-02 15:04"),
+		})
+	}
+	writeByFormat(c, gin.H{"sessions": items}, q.Format)
+}
 
-	list, err := s.db.GetContacts(q.Keyword, q.Limit, q.Offset)
+func (s *Service) handleHistory(c *gin.Context) {
+	q := struct {
+		Chat    string `form:"chat"`
+		Time    string `form:"time"`
+		Since   string `form:"since"`
+		Until   string `form:"until"`
+		MsgType int64  `form:"msg_type"`
+		Limit   int    `form:"limit"`
+		Offset  int    `form:"offset"`
+		Format  string `form:"format"`
+	}{}
+	if err := c.BindQuery(&q); err != nil {
+		errors.Err(c, err)
+		return
+	}
+	if strings.TrimSpace(q.Chat) == "" {
+		errors.Err(c, errors.InvalidArg("chat"))
+		return
+	}
+	if q.Limit <= 0 {
+		q.Limit = 50
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	start, end, _, err := parseSinceUntil(q.Time, q.Since, q.Until)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	messages, err := s.db.GetMessages(start, end, q.Chat, "", "", q.Limit+q.Offset, 0)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	messages = filterByMsgType(messages, q.MsgType)
+	if q.Offset > 0 {
+		if q.Offset >= len(messages) {
+			messages = []*model.Message{}
+		} else {
+			messages = messages[q.Offset:]
+		}
+	}
+	if q.Limit > 0 && len(messages) > q.Limit {
+		messages = messages[:q.Limit]
+	}
+	chat := q.Chat
+	username := q.Chat
+	if len(messages) > 0 {
+		if messages[0].TalkerName != "" {
+			chat = messages[0].TalkerName
+		}
+		if messages[0].Talker != "" {
+			username = messages[0].Talker
+		}
+	}
+	isGroup := strings.HasSuffix(username, "@chatroom")
+	chatType := "private"
+	if isGroup {
+		chatType = "group"
+	}
+	rows := make([]gin.H, 0, len(messages))
+	for _, m := range messages {
+		rows = append(rows, toHistoryMessage(m, c.Request.Host))
+	}
+	writeByFormat(c, gin.H{
+		"chat":      chat,
+		"username":  username,
+		"is_group":  isGroup,
+		"chat_type": chatType,
+		"count":     len(rows),
+		"messages":  rows,
+	}, q.Format)
+}
+
+func (s *Service) handleSearchCompat(c *gin.Context) {
+	q := struct {
+		Keyword string `form:"keyword"`
+		Chats   string `form:"chats"`
+		Time    string `form:"time"`
+		Since   string `form:"since"`
+		Until   string `form:"until"`
+		MsgType int64  `form:"msg_type"`
+		Limit   int    `form:"limit"`
+		Format  string `form:"format"`
+	}{}
+	if err := c.BindQuery(&q); err != nil {
+		errors.Err(c, err)
+		return
+	}
+	if strings.TrimSpace(q.Keyword) == "" {
+		errors.Err(c, errors.InvalidArg("keyword"))
+		return
+	}
+	if q.Limit <= 0 {
+		q.Limit = 20
+	}
+	start, end, _, err := parseSinceUntil(q.Time, q.Since, q.Until)
 	if err != nil {
 		errors.Err(c, err)
 		return
 	}
 
-	format := strings.ToLower(q.Format)
-	switch format {
-	case "json":
-		// json
-		c.JSON(http.StatusOK, list)
-	case "xlsx", "excel":
-		f := excelize.NewFile()
-		defer func() {
-			if err := f.Close(); err != nil {
-				log.Error().Err(err).Msg("Failed to close excel file")
-			}
-		}()
-		index, err := f.NewSheet("Contacts")
-		if err != nil {
-			errors.Err(c, err)
-			return
-		}
-		headers := []string{"UserName", "Alias", "Remark", "NickName"}
-		for i, header := range headers {
-			cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-			f.SetCellValue("Contacts", cell, header)
-		}
-		for i, contact := range list.Items {
-			row := []interface{}{contact.UserName, contact.Alias, contact.Remark, contact.NickName}
-			for j, val := range row {
-				cell, _ := excelize.CoordinatesToCellName(j+1, i+2)
-				f.SetCellValue("Contacts", cell, val)
+	chats := util.Str2List(q.Chats, ",")
+	if len(chats) == 0 {
+		sessions, err := s.db.GetSessions("", 300, 0)
+		if err == nil {
+			for _, sess := range sessions.Items {
+				chats = append(chats, sess.UserName)
 			}
 		}
-		f.SetActiveSheet(index)
-		c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-		c.Writer.Header().Set("Content-Disposition", "attachment; filename=contacts.xlsx")
-		if err := f.Write(c.Writer); err != nil {
-			errors.Err(c, err)
-			return
-		}
-	default:
-		// csv
-		if format == "csv" {
-			// 浏览器访问时，会下载文件
-			c.Writer.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		} else {
-			c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		}
-		c.Writer.Header().Set("Cache-Control", "no-cache")
-		c.Writer.Header().Set("Connection", "keep-alive")
-		c.Writer.Flush()
+	}
 
-		c.Writer.WriteString("UserName,Alias,Remark,NickName\n")
-		for _, contact := range list.Items {
-			c.Writer.WriteString(fmt.Sprintf("%s,%s,%s,%s\n", contact.UserName, contact.Alias, contact.Remark, contact.NickName))
+	out := make([]gin.H, 0, q.Limit*2)
+	kwPattern := regexp.QuoteMeta(q.Keyword)
+	for _, chat := range chats {
+		msgs, err := s.db.GetMessages(start, end, chat, "", kwPattern, q.Limit*3, 0)
+		if err != nil {
+			continue
 		}
-		c.Writer.Flush()
+		msgs = filterByMsgType(msgs, q.MsgType)
+		for _, m := range msgs {
+			row := toHistoryMessage(m, c.Request.Host)
+			row["chat"] = m.TalkerName
+			if row["chat"] == "" {
+				row["chat"] = m.Talker
+			}
+			row["username"] = m.Talker
+			out = append(out, row)
+			if len(out) >= q.Limit {
+				break
+			}
+		}
+		if len(out) >= q.Limit {
+			break
+		}
+	}
+	writeByFormat(c, gin.H{"count": len(out), "messages": out}, q.Format)
+}
+
+func classifyChatType(username string) string {
+	u := strings.ToLower(strings.TrimSpace(username))
+	switch {
+	case strings.HasSuffix(u, "@chatroom"):
+		return "group"
+	case strings.HasPrefix(u, "gh_"):
+		return "official_account"
+	case strings.HasPrefix(u, "notifymessage"), strings.HasPrefix(u, "notification_messages"), strings.HasPrefix(u, "floatbottle"):
+		return "folded"
+	default:
+		return "private"
 	}
 }
 
-func (s *Service) handleChatRooms(c *gin.Context) {
-
-	q := struct {
-		Keyword string `form:"keyword"`
-		Limit   int    `form:"limit"`
-		Offset  int    `form:"offset"`
-		Format  string `form:"format"`
-	}{}
-
-	if err := c.BindQuery(&q); err != nil {
-		errors.Err(c, err)
-		return
+func parseFilterSet(c *gin.Context) map[string]bool {
+	parts := make([]string, 0, 4)
+	parts = append(parts, c.QueryArray("filter")...)
+	if v := strings.TrimSpace(c.Query("filter")); v != "" {
+		parts = append(parts, util.Str2List(v, ",")...)
 	}
-
-	list, err := s.db.GetChatRooms(q.Keyword, q.Limit, q.Offset)
-	if err != nil {
-		errors.Err(c, err)
-		return
+	set := map[string]bool{}
+	for _, p := range parts {
+		x := strings.ToLower(strings.TrimSpace(p))
+		switch x {
+		case "", "all":
+			return nil
+		case "private":
+			set["private"] = true
+		case "group":
+			set["group"] = true
+		case "official", "official_account":
+			set["official_account"] = true
+		case "folded", "fold":
+			set["folded"] = true
+		}
 	}
-	format := strings.ToLower(q.Format)
-	switch format {
-	case "json":
-		// json
-		c.JSON(http.StatusOK, list)
-	case "xlsx", "excel":
-		f := excelize.NewFile()
-		defer func() {
-			if err := f.Close(); err != nil {
-				log.Error().Err(err).Msg("Failed to close excel file")
-			}
-		}()
-		index, err := f.NewSheet("ChatRooms")
-		if err != nil {
-			errors.Err(c, err)
-			return
-		}
-		headers := []string{"Name", "Remark", "NickName", "Owner", "UserCount"}
-		for i, header := range headers {
-			cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-			f.SetCellValue("ChatRooms", cell, header)
-		}
-		for i, chatRoom := range list.Items {
-			row := []interface{}{chatRoom.Name, chatRoom.Remark, chatRoom.NickName, chatRoom.Owner, len(chatRoom.Users)}
-			for j, val := range row {
-				cell, _ := excelize.CoordinatesToCellName(j+1, i+2)
-				f.SetCellValue("ChatRooms", cell, val)
-			}
-		}
-		f.SetActiveSheet(index)
-		c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-		c.Writer.Header().Set("Content-Disposition", "attachment; filename=chatrooms.xlsx")
-		if err := f.Write(c.Writer); err != nil {
-			errors.Err(c, err)
-			return
-		}
-	default:
-		// csv
-		if format == "csv" {
-			// 浏览器访问时，会下载文件
-			c.Writer.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		} else {
-			c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		}
-		c.Writer.Header().Set("Cache-Control", "no-cache")
-		c.Writer.Header().Set("Connection", "keep-alive")
-		c.Writer.Flush()
-
-		c.Writer.WriteString("Name,Remark,NickName,Owner,UserCount\n")
-		for _, chatRoom := range list.Items {
-			c.Writer.WriteString(fmt.Sprintf("%s,%s,%s,%s,%d\n", chatRoom.Name, chatRoom.Remark, chatRoom.NickName, chatRoom.Owner, len(chatRoom.Users)))
-		}
-		c.Writer.Flush()
+	if len(set) == 0 {
+		return nil
 	}
+	return set
 }
 
-func (s *Service) handleSessions(c *gin.Context) {
-
-	q := struct {
-		Keyword string `form:"keyword"`
-		Limit   int    `form:"limit"`
-		Offset  int    `form:"offset"`
-		Format  string `form:"format"`
-	}{}
-
-	if err := c.BindQuery(&q); err != nil {
-		errors.Err(c, err)
-		return
+func (s *Service) findDBFile(group string, preferContains ...string) (string, error) {
+	db := s.db.GetDB()
+	if db == nil {
+		return "", fmt.Errorf("database not ready")
 	}
+	dbs, err := db.GetDBs()
+	if err != nil {
+		return "", err
+	}
+	files := dbs[strings.ToLower(group)]
+	if len(files) == 0 {
+		return "", fmt.Errorf("%s database not found", group)
+	}
+	for _, prefer := range preferContains {
+		for _, f := range files {
+			if strings.Contains(strings.ToLower(filepath.Base(f)), strings.ToLower(prefer)) {
+				return f, nil
+			}
+		}
+	}
+	return files[0], nil
+}
 
-	sessions, err := s.db.GetSessions(q.Keyword, q.Limit, q.Offset)
+func (s *Service) handleUnreadCompat(c *gin.Context) {
+	format := c.Query("format")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 {
+		limit = 20
+	}
+	filterSet := parseFilterSet(c)
+
+	file, err := s.findDBFile("session", "session.db")
 	if err != nil {
 		errors.Err(c, err)
 		return
 	}
-	format := strings.ToLower(q.Format)
-	switch format {
-	case "csv":
-		c.Writer.Header().Set("Content-Type", "text/csv; charset=utf-8")
-		c.Writer.Header().Set("Cache-Control", "no-cache")
-		c.Writer.Header().Set("Connection", "keep-alive")
-		c.Writer.Flush()
-
-		c.Writer.WriteString("UserName,NOrder,NickName,Content,NTime\n")
-		for _, session := range sessions.Items {
-			c.Writer.WriteString(fmt.Sprintf("%s,%d,%s,%s,%s\n", session.UserName, session.NOrder, session.NickName, strings.ReplaceAll(session.Content, "\n", "\\n"), session.NTime))
-		}
-		c.Writer.Flush()
-	case "xlsx", "excel":
-		f := excelize.NewFile()
-		defer func() {
-			if err := f.Close(); err != nil {
-				log.Error().Err(err).Msg("Failed to close excel file")
-			}
-		}()
-		index, err := f.NewSheet("Sessions")
-		if err != nil {
-			errors.Err(c, err)
-			return
-		}
-		headers := []string{"UserName", "NOrder", "NickName", "Content", "NTime"}
-		for i, header := range headers {
-			cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-			f.SetCellValue("Sessions", cell, header)
-		}
-		for i, session := range sessions.Items {
-			row := []interface{}{session.UserName, session.NOrder, session.NickName, session.Content, session.NTime}
-			for j, val := range row {
-				cell, _ := excelize.CoordinatesToCellName(j+1, i+2)
-				f.SetCellValue("Sessions", cell, val)
-			}
-		}
-		f.SetActiveSheet(index)
-		c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-		c.Writer.Header().Set("Content-Disposition", "attachment; filename=sessions.xlsx")
-		if err := f.Write(c.Writer); err != nil {
-			errors.Err(c, err)
-			return
-		}
-	case "json":
-		// json
-		c.JSON(http.StatusOK, sessions)
-	default:
-		c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		c.Writer.Header().Set("Cache-Control", "no-cache")
-		c.Writer.Header().Set("Connection", "keep-alive")
-		c.Writer.Flush()
-		for _, session := range sessions.Items {
-			c.Writer.WriteString(session.PlainText(120))
-			c.Writer.WriteString("\n")
-		}
-		c.Writer.Flush()
+	sql := fmt.Sprintf(`SELECT username, unread_count, summary, last_timestamp, last_msg_type, last_msg_sender, last_sender_display_name
+FROM SessionTable
+WHERE unread_count > 0
+ORDER BY last_timestamp DESC
+LIMIT %d`, limit*4)
+	rows, err := s.db.ExecuteSQL("session", file, sql)
+	if err != nil {
+		errors.Err(c, err)
+		return
 	}
+
+	out := make([]gin.H, 0, limit)
+	for _, row := range rows {
+		username := toString(row["username"])
+		chatType := classifyChatType(username)
+		if filterSet != nil && !filterSet[chatType] {
+			continue
+		}
+		display := username
+		if contact, _ := s.db.GetContact(username); contact != nil {
+			display = contact.DisplayName()
+		} else if room, _ := s.db.GetChatRoom(username); room != nil {
+			display = room.DisplayName()
+		}
+		ts := toInt64(row["last_timestamp"])
+		lastSender := toString(row["last_sender_display_name"])
+		if lastSender == "" {
+			lastSender = toString(row["last_msg_sender"])
+		}
+		out = append(out, gin.H{
+			"chat":          display,
+			"username":      username,
+			"is_group":      chatType == "group",
+			"chat_type":     chatType,
+			"unread":        toInt64(row["unread_count"]),
+			"last_msg_type": formatMessageType(toInt64(row["last_msg_type"])),
+			"last_sender":   lastSender,
+			"summary":       toString(row["summary"]),
+			"timestamp":     ts,
+			"time":          time.Unix(ts, 0).Format("01-02 15:04"),
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	writeByFormat(c, gin.H{"sessions": out, "total": len(out)}, format)
+}
+
+func (s *Service) handleMembersCompat(c *gin.Context) {
+	chat := strings.TrimSpace(c.Query("chat"))
+	format := c.Query("format")
+	if chat == "" {
+		errors.Err(c, errors.InvalidArg("chat"))
+		return
+	}
+	room, err := s.db.GetChatRoom(chat)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	members := make([]gin.H, 0, len(room.Users))
+	for _, u := range room.Users {
+		display := room.User2DisplayName[u.UserName]
+		if display == "" {
+			display = u.UserName
+		}
+		members = append(members, gin.H{
+			"username": u.UserName,
+			"display":  display,
+			"is_owner": room.Owner != "" && room.Owner == u.UserName,
+		})
+	}
+	writeByFormat(c, gin.H{
+		"chat":     room.DisplayName(),
+		"username": room.Name,
+		"count":    len(members),
+		"members":  members,
+	}, format)
+}
+
+func (s *Service) handleNewMessagesCompat(c *gin.Context) {
+	format := c.Query("format")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "200"))
+	if limit <= 0 {
+		limit = 200
+	}
+	state := map[string]int64{}
+	if raw := strings.TrimSpace(c.Query("state")); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &state)
+	}
+	now := time.Now().Unix()
+	fallback := now - 24*3600
+
+	sessions, err := s.db.GetSessions("", 500, 0)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	newState := make(map[string]int64, len(sessions.Items))
+	changed := make([]*model.Session, 0, len(sessions.Items))
+	for _, sess := range sessions.Items {
+		ts := sess.NTime.Unix()
+		newState[sess.UserName] = ts
+		last := fallback
+		if v, ok := state[sess.UserName]; ok {
+			last = v
+		}
+		if ts > last {
+			changed = append(changed, sess)
+		}
+	}
+	if len(changed) == 0 {
+		writeByFormat(c, gin.H{"count": 0, "messages": []gin.H{}, "new_state": newState}, format)
+		return
+	}
+	out := make([]gin.H, 0, limit)
+	for _, sess := range changed {
+		last := fallback
+		if v, ok := state[sess.UserName]; ok {
+			last = v
+		}
+		msgs, err := s.db.GetMessages(time.Unix(last+1, 0), time.Now(), sess.UserName, "", "", limit*3, 0)
+		if err != nil {
+			continue
+		}
+		for _, m := range msgs {
+			row := toHistoryMessage(m, c.Request.Host)
+			row["chat"] = m.TalkerName
+			if row["chat"] == "" {
+				row["chat"] = m.Talker
+			}
+			row["username"] = m.Talker
+			row["is_group"] = m.IsChatRoom
+			row["chat_type"] = classifyChatType(m.Talker)
+			out = append(out, row)
+			if len(out) >= limit {
+				break
+			}
+		}
+		if len(out) >= limit {
+			break
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return toInt64(out[i]["timestamp"]) < toInt64(out[j]["timestamp"])
+	})
+	writeByFormat(c, gin.H{
+		"count":     len(out),
+		"messages":  out,
+		"new_state": newState,
+	}, format)
+}
+
+func (s *Service) handleStatsCompat(c *gin.Context) {
+	chat := strings.TrimSpace(c.Query("chat"))
+	format := c.Query("format")
+	if chat == "" {
+		errors.Err(c, errors.InvalidArg("chat"))
+		return
+	}
+	start, end, _, err := parseSinceUntil(c.Query("time"), c.Query("since"), c.Query("until"))
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	msgs, err := s.db.GetMessages(start, end, chat, "", "", 0, 0)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	byType := map[string]int64{}
+	topSenders := map[string]int64{}
+	byHour := make([]gin.H, 24)
+	for i := 0; i < 24; i++ {
+		byHour[i] = gin.H{"hour": i, "count": 0}
+	}
+	for _, m := range msgs {
+		byType[formatMessageType(m.Type)]++
+		if m.IsChatRoom {
+			sender := m.SenderName
+			if sender == "" {
+				sender = m.Sender
+			}
+			topSenders[sender]++
+		}
+		h := m.Time.Hour()
+		byHour[h]["count"] = byHour[h]["count"].(int) + 1
+	}
+	typeRows := make([]gin.H, 0, len(byType))
+	for t, n := range byType {
+		typeRows = append(typeRows, gin.H{"type": t, "count": n})
+	}
+	sort.Slice(typeRows, func(i, j int) bool { return toInt64(typeRows[i]["count"]) > toInt64(typeRows[j]["count"]) })
+	senderRows := make([]gin.H, 0, len(topSenders))
+	for sdr, n := range topSenders {
+		senderRows = append(senderRows, gin.H{"sender": sdr, "count": n})
+	}
+	sort.Slice(senderRows, func(i, j int) bool { return toInt64(senderRows[i]["count"]) > toInt64(senderRows[j]["count"]) })
+	if len(senderRows) > 10 {
+		senderRows = senderRows[:10]
+	}
+	username := chat
+	display := chat
+	chatType := "private"
+	if len(msgs) > 0 {
+		username = msgs[0].Talker
+		chatType = classifyChatType(username)
+		if msgs[0].TalkerName != "" {
+			display = msgs[0].TalkerName
+		}
+	}
+	writeByFormat(c, gin.H{
+		"chat":        display,
+		"username":    username,
+		"is_group":    chatType == "group",
+		"chat_type":   chatType,
+		"total":       len(msgs),
+		"by_type":     typeRows,
+		"top_senders": senderRows,
+		"by_hour":     byHour,
+	}, format)
+}
+
+func (s *Service) handleFavoritesCompat(c *gin.Context) {
+	format := c.Query("format")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit <= 0 {
+		limit = 50
+	}
+	favType, _ := strconv.ParseInt(strings.TrimSpace(c.Query("fav_type")), 10, 64)
+	queryKw := strings.TrimSpace(c.Query("query"))
+
+	file, err := s.findDBFile("favorite", "favorite.db")
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	rows, err := s.db.ExecuteSQL("favorite", file, fmt.Sprintf("SELECT * FROM fav_db_item ORDER BY rowid DESC LIMIT %d", limit*4))
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	items := make([]gin.H, 0, limit)
+	for _, r := range rows {
+		ft := toInt64(r["type"])
+		if favType != 0 && ft != favType {
+			continue
+		}
+		content := toString(r["content"])
+		if queryKw != "" && !strings.Contains(strings.ToLower(content), strings.ToLower(queryKw)) {
+			continue
+		}
+		ts := toInt64(r["update_time"])
+		if ts > 9_999_999_999 {
+			ts /= 1000
+		}
+		typeName := map[int64]string{1: "文本", 2: "图片", 5: "文章", 19: "名片", 20: "视频"}[ft]
+		if typeName == "" {
+			typeName = "其他"
+		}
+		preview := content
+		if len([]rune(preview)) > 100 {
+			preview = string([]rune(preview)[:100]) + "..."
+		}
+		items = append(items, gin.H{
+			"id":        toInt64(r["local_id"]),
+			"type":      typeName,
+			"type_num":  ft,
+			"time":      time.Unix(ts, 0).Format("2006-01-02 15:04"),
+			"timestamp": ts,
+			"preview":   preview,
+			"from":      toString(r["fromusr"]),
+			"chat":      toString(r["realchatname"]),
+		})
+		if len(items) >= limit {
+			break
+		}
+	}
+	writeByFormat(c, gin.H{"count": len(items), "items": items}, format)
+}
+
+func (s *Service) handleSNSNotificationsCompat(c *gin.Context) {
+	format := c.Query("format")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit <= 0 {
+		limit = 50
+	}
+	start, end, hasRange, err := parseSinceUntil(c.Query("time"), c.Query("since"), c.Query("until"))
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	includeRead := strings.EqualFold(c.DefaultQuery("include_read", "false"), "true")
+	file, err := s.findDBFile("sns", "sns.db")
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	rows, err := s.db.ExecuteSQL("sns", file, fmt.Sprintf(`SELECT local_id, create_time, type, feed_id, from_username, from_nickname, content, is_unread
+FROM SnsMessage_tmp3 ORDER BY create_time DESC LIMIT %d`, limit*4))
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	out := make([]gin.H, 0, limit)
+	for _, r := range rows {
+		if !includeRead && toInt64(r["is_unread"]) == 0 {
+			continue
+		}
+		ts := toInt64(r["create_time"])
+		tm := time.Unix(ts, 0)
+		if hasRange {
+			if !start.IsZero() && tm.Before(start) {
+				continue
+			}
+			if !end.IsZero() && tm.After(end) {
+				continue
+			}
+		}
+		content := toString(r["content"])
+		kind := "comment"
+		if strings.TrimSpace(content) == "" {
+			kind = "like"
+		}
+		out = append(out, gin.H{
+			"type":                 kind,
+			"time":                 tm.Format("01-02 15:04"),
+			"timestamp":            ts,
+			"from_username":        toString(r["from_username"]),
+			"from_nickname":        toString(r["from_nickname"]),
+			"content":              content,
+			"feed_id":              toInt64(r["feed_id"]),
+			"feed_author":          "",
+			"feed_author_username": "",
+			"feed_preview":         "",
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	writeByFormat(c, gin.H{"notifications": out, "total": len(out)}, format)
+}
+
+func extractXMLTagValue(xmlText, tag string) string {
+	startTag := "<" + tag + ">"
+	endTag := "</" + tag + ">"
+	start := strings.Index(xmlText, startTag)
+	if start < 0 {
+		return ""
+	}
+	start += len(startTag)
+	end := strings.Index(xmlText[start:], endTag)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(xmlText[start : start+end])
+}
+
+func (s *Service) handleSNSFeedCompat(c *gin.Context) {
+	format := c.Query("format")
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 {
+		limit = 20
+	}
+	user := strings.TrimSpace(c.Query("user"))
+	start, end, hasRange, err := parseSinceUntil(c.Query("time"), c.Query("since"), c.Query("until"))
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	rows, err := s.db.GetSNSTimeline("", limit*8, 0)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	out := make([]gin.H, 0, limit)
+	for _, r := range rows {
+		tid := toInt64(r["tid"])
+		content := toString(r["content"])
+		author := toString(r["user_name"])
+		if author == "" {
+			author = extractXMLTagValue(content, "username")
+		}
+		desc := extractXMLTagValue(content, "contentDesc")
+		cts := toInt64(extractXMLTagValue(content, "createTime"))
+		if cts == 0 {
+			cts = tid / 1000000
+		}
+		tm := time.Unix(cts, 0)
+		if hasRange {
+			if !start.IsZero() && tm.Before(start) {
+				continue
+			}
+			if !end.IsZero() && tm.After(end) {
+				continue
+			}
+		}
+		if user != "" && !strings.Contains(strings.ToLower(author), strings.ToLower(user)) {
+			disp := author
+			if contact, _ := s.db.GetContact(author); contact != nil {
+				disp = contact.DisplayName()
+			}
+			if !strings.Contains(strings.ToLower(disp), strings.ToLower(user)) {
+				continue
+			}
+		}
+		out = append(out, gin.H{
+			"id":          tid,
+			"timestamp":   cts,
+			"time":        tm.Format("2006-01-02 15:04"),
+			"username":    author,
+			"display":     author,
+			"content":     desc,
+			"raw_content": content,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	writeByFormat(c, gin.H{"count": len(out), "items": out}, format)
+}
+
+func (s *Service) handleSNSSearchCompat(c *gin.Context) {
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	format := c.Query("format")
+	if keyword == "" {
+		errors.Err(c, errors.InvalidArg("keyword"))
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 {
+		limit = 20
+	}
+	user := strings.TrimSpace(c.Query("user"))
+	start, end, hasRange, err := parseSinceUntil(c.Query("time"), c.Query("since"), c.Query("until"))
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	rows, err := s.db.GetSNSTimeline("", limit*10, 0)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	out := make([]gin.H, 0, limit)
+	for _, r := range rows {
+		tid := toInt64(r["tid"])
+		content := toString(r["content"])
+		desc := extractXMLTagValue(content, "contentDesc")
+		if !strings.Contains(strings.ToLower(desc), strings.ToLower(keyword)) {
+			continue
+		}
+		author := toString(r["user_name"])
+		if author == "" {
+			author = extractXMLTagValue(content, "username")
+		}
+		cts := toInt64(extractXMLTagValue(content, "createTime"))
+		if cts == 0 {
+			cts = tid / 1000000
+		}
+		tm := time.Unix(cts, 0)
+		if hasRange {
+			if !start.IsZero() && tm.Before(start) {
+				continue
+			}
+			if !end.IsZero() && tm.After(end) {
+				continue
+			}
+		}
+		if user != "" && !strings.Contains(strings.ToLower(author), strings.ToLower(user)) {
+			continue
+		}
+		out = append(out, gin.H{
+			"id":          tid,
+			"timestamp":   cts,
+			"time":        tm.Format("2006-01-02 15:04"),
+			"username":    author,
+			"content":     desc,
+			"raw_content": content,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	writeByFormat(c, gin.H{"count": len(out), "items": out}, format)
+}
+
+func (s *Service) handleContactsCompat(c *gin.Context) {
+	q := struct {
+		Query  string `form:"query"`
+		Limit  int    `form:"limit"`
+		Offset int    `form:"offset"`
+		Format string `form:"format"`
+	}{}
+	if err := c.BindQuery(&q); err != nil {
+		errors.Err(c, err)
+		return
+	}
+	if q.Limit <= 0 {
+		q.Limit = 50
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	list, err := s.db.GetContacts(q.Query, q.Limit, q.Offset)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	out := make([]gin.H, 0, len(list.Items))
+	for _, ct := range list.Items {
+		display := ct.DisplayName()
+		if display == "" {
+			display = ct.UserName
+		}
+		out = append(out, gin.H{
+			"username":  ct.UserName,
+			"alias":     ct.Alias,
+			"remark":    ct.Remark,
+			"nickname":  ct.NickName,
+			"display":   display,
+			"is_friend": ct.IsFriend,
+		})
+	}
+	writeByFormat(c, gin.H{"count": len(out), "contacts": out}, q.Format)
+}
+
+func (s *Service) handleChatRoomsCompat(c *gin.Context) {
+	q := struct {
+		Query  string `form:"query"`
+		Limit  int    `form:"limit"`
+		Offset int    `form:"offset"`
+		Format string `form:"format"`
+	}{}
+	if err := c.BindQuery(&q); err != nil {
+		errors.Err(c, err)
+		return
+	}
+	if q.Limit <= 0 {
+		q.Limit = 50
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	list, err := s.db.GetChatRooms(q.Query, q.Limit, q.Offset)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+	out := make([]gin.H, 0, len(list.Items))
+	for _, room := range list.Items {
+		display := room.DisplayName()
+		if display == "" {
+			display = room.Name
+		}
+		out = append(out, gin.H{
+			"name":       room.Name,
+			"remark":     room.Remark,
+			"nickname":   room.NickName,
+			"display":    display,
+			"owner":      room.Owner,
+			"user_count": len(room.Users),
+		})
+	}
+	writeByFormat(c, gin.H{"count": len(out), "chatrooms": out}, q.Format)
 }
 
 func (s *Service) handleMedia(c *gin.Context, _type string) {
@@ -484,7 +1339,11 @@ func (s *Service) handleMedia(c *gin.Context, _type string) {
 						s.handleImageFile(c, absolutePath)
 						return
 					}
-					c.Redirect(http.StatusFound, "/data/"+cachedPath)
+					relativePath, relErr := s.relativeDataPath(absolutePath)
+					if relErr == nil {
+						c.Redirect(http.StatusFound, "/data/"+relativePath)
+						return
+					}
 					return
 				}
 			}
@@ -526,29 +1385,38 @@ func (s *Service) handleMedia(c *gin.Context, _type string) {
 }
 
 func (s *Service) findPath(_type string, key string) (string, error) {
-	absolutePath := filepath.Join(s.conf.GetDataDir(), key)
+	absolutePath, relativePath, err := s.safeDataPath(key)
+	if err != nil {
+		return "", errors.ErrMediaNotFound
+	}
 	if _, err := os.Stat(absolutePath); err == nil {
-		return key, nil
+		return relativePath, nil
 	}
 	switch _type {
 	case "image":
 		for _, suffix := range []string{"_h.dat", ".dat", "_t.dat"} {
-			if _, err := os.Stat(absolutePath + suffix); err == nil {
-				return key + suffix, nil
+			candidate := absolutePath + suffix
+			if _, err := os.Stat(candidate); err == nil {
+				if rel, relErr := s.relativeDataPath(candidate); relErr == nil {
+					return rel, nil
+				}
 			}
 		}
 	case "video":
 		for _, suffix := range []string{".mp4", "_thumb.jpg"} {
-			if _, err := os.Stat(absolutePath + suffix); err == nil {
-				return key + suffix, nil
+			candidate := absolutePath + suffix
+			if _, err := os.Stat(candidate); err == nil {
+				if rel, relErr := s.relativeDataPath(candidate); relErr == nil {
+					return rel, nil
+				}
 			}
 		}
 	}
 	return "", errors.ErrMediaNotFound
 }
 
-// findImageByMD5 searches for an image file by MD5 in the msg/attach directory
-// It tries different suffixes: _h.dat, .dat, _t.dat
+// findImageByMD5 searches for an image-like file token in msg/attach directory.
+// Key can be md5, dat basename, or numeric file token.
 func (s *Service) findImageByMD5(md5 string) string {
 	dataDir := s.conf.GetDataDir()
 	attachDir := filepath.Join(dataDir, "msg", "attach")
@@ -559,6 +1427,24 @@ func (s *Service) findImageByMD5(md5 string) string {
 	}
 
 	var foundPath string
+	bestScore := -1
+	scoreOf := func(name string) int {
+		lower := strings.ToLower(name)
+		switch {
+		case strings.HasSuffix(lower, "_h.dat"):
+			return 5
+		case strings.HasSuffix(lower, ".dat"):
+			return 4
+		case strings.HasSuffix(lower, "_t.dat"):
+			return 3
+		case filepath.Ext(lower) == "":
+			return 2
+		case strings.HasSuffix(lower, ".jpg"), strings.HasSuffix(lower, ".jpeg"), strings.HasSuffix(lower, ".png"), strings.HasSuffix(lower, ".gif"), strings.HasSuffix(lower, ".bmp"), strings.HasSuffix(lower, ".webp"):
+			return 1
+		default:
+			return 0
+		}
+	}
 
 	// Walk through the attach directory to find files matching the md5
 	err := filepath.Walk(attachDir, func(path string, info os.FileInfo, err error) error {
@@ -568,11 +1454,6 @@ func (s *Service) findImageByMD5(md5 string) string {
 				return filepath.SkipDir
 			}
 			return err
-		}
-
-		// Stop if we already found a file
-		if foundPath != "" {
-			return io.EOF
 		}
 
 		// Skip directories
@@ -586,22 +1467,27 @@ func (s *Service) findImageByMD5(md5 string) string {
 			return nil
 		}
 
-		// Check if it's a .dat file
-		if !strings.HasSuffix(baseName, ".dat") {
+		// Accept dat/no-ext/common image file for fallback.
+		score := scoreOf(baseName)
+		if score == 0 {
 			return nil
 		}
 
 		// Try to read and verify the file
 		if _, err := os.Stat(path); err == nil {
-			foundPath = path
-			return io.EOF
+			if score > bestScore {
+				bestScore = score
+				foundPath = path
+			}
 		}
 
 		return nil
 	})
 
-	// If we found io.EOF, it means we found the file
-	if err == io.EOF && foundPath != "" {
+	if err != nil {
+		return ""
+	}
+	if foundPath != "" {
 		return foundPath
 	}
 
@@ -689,8 +1575,11 @@ func (s *Service) handleImageFile(c *gin.Context, absolutePath string) {
 
 	// If it doesn't need decryption, redirect to the data handler
 	if !needsDecryption {
-		relativePath := strings.TrimPrefix(absolutePath, s.conf.GetDataDir())
-		relativePath = strings.TrimPrefix(relativePath, string(filepath.Separator))
+		relativePath, err := s.relativeDataPath(absolutePath)
+		if err != nil {
+			errors.Err(c, errors.ErrMediaNotFound)
+			return
+		}
 		c.Redirect(http.StatusFound, "/data/"+relativePath)
 		return
 	}
@@ -706,8 +1595,11 @@ func (s *Service) handleImageFile(c *gin.Context, absolutePath string) {
 	}
 
 	var newRelativePath string
-	relativePathBase := strings.TrimPrefix(outputPath, s.conf.GetDataDir())
-	relativePathBase = strings.TrimPrefix(relativePathBase, string(filepath.Separator))
+	relativePathBase, relErr := s.relativeDataPath(outputPath)
+	if relErr != nil {
+		errors.Err(c, errors.ErrMediaNotFound)
+		return
+	}
 
 	// Check if a converted file already exists
 	for _, ext := range []string{".jpg", ".png", ".gif", ".jpeg", ".bmp"} {
@@ -727,8 +1619,11 @@ func (s *Service) handleImageFile(c *gin.Context, absolutePath string) {
 	b, err := os.ReadFile(absolutePath)
 	if err != nil {
 		// If file doesn't exist or can't be read, fallback to redirect
-		relativePath := strings.TrimPrefix(absolutePath, s.conf.GetDataDir())
-		relativePath = strings.TrimPrefix(relativePath, string(filepath.Separator))
+		relativePath, relErr := s.relativeDataPath(absolutePath)
+		if relErr != nil {
+			errors.Err(c, errors.ErrMediaNotFound)
+			return
+		}
 		c.Redirect(http.StatusFound, "/data/"+relativePath)
 		return
 	}
@@ -736,8 +1631,11 @@ func (s *Service) handleImageFile(c *gin.Context, absolutePath string) {
 	out, ext, err := dat2img.Dat2Image(b)
 	if err != nil {
 		// If decryption fails, fallback to serving the file as-is
-		relativePath := strings.TrimPrefix(absolutePath, s.conf.GetDataDir())
-		relativePath = strings.TrimPrefix(relativePath, string(filepath.Separator))
+		relativePath, relErr := s.relativeDataPath(absolutePath)
+		if relErr != nil {
+			errors.Err(c, errors.ErrMediaNotFound)
+			return
+		}
 		c.Redirect(http.StatusFound, "/data/"+relativePath)
 		return
 	}
@@ -751,9 +1649,14 @@ func (s *Service) handleImageFile(c *gin.Context, absolutePath string) {
 }
 
 func (s *Service) handleMediaData(c *gin.Context) {
-	relativePath := filepath.Clean(c.Param("path"))
-
-	absolutePath := filepath.Join(s.conf.GetDataDir(), relativePath)
+	rawPath := strings.TrimPrefix(c.Param("path"), "/")
+	absolutePath, _, err := s.safeDataPath(rawPath)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Forbidden",
+		})
+		return
+	}
 
 	if _, err := os.Stat(absolutePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -774,6 +1677,44 @@ func (s *Service) handleMediaData(c *gin.Context) {
 
 }
 
+func (s *Service) safeDataPath(input string) (absolutePath, relativePath string, err error) {
+	base := filepath.Clean(s.conf.GetDataDir())
+	if base == "" || base == "." {
+		return "", "", errors.ErrMediaNotFound
+	}
+
+	cleaned := filepath.Clean(strings.TrimPrefix(input, "/"))
+	if cleaned == "." || cleaned == "" {
+		return "", "", errors.ErrMediaNotFound
+	}
+
+	absolutePath = filepath.Join(base, cleaned)
+	relativePath, err = filepath.Rel(base, absolutePath)
+	if err != nil {
+		return "", "", errors.ErrMediaNotFound
+	}
+	if relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return "", "", errors.ErrMediaNotFound
+	}
+	return absolutePath, filepath.ToSlash(relativePath), nil
+}
+
+func (s *Service) relativeDataPath(absolutePath string) (string, error) {
+	base := filepath.Clean(s.conf.GetDataDir())
+	if base == "" || base == "." {
+		return "", errors.ErrMediaNotFound
+	}
+	cleaned := filepath.Clean(absolutePath)
+	relativePath, err := filepath.Rel(base, cleaned)
+	if err != nil {
+		return "", errors.ErrMediaNotFound
+	}
+	if relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return "", errors.ErrMediaNotFound
+	}
+	return filepath.ToSlash(relativePath), nil
+}
+
 func (s *Service) HandleDatFile(c *gin.Context, path string) {
 
 	b, err := os.ReadFile(path)
@@ -782,6 +1723,19 @@ func (s *Service) HandleDatFile(c *gin.Context, path string) {
 		return
 	}
 	out, ext, err := dat2img.Dat2Image(b)
+	if err != nil {
+		// WeFlow-style auto self-heal:
+		// on AES padding mismatch, refresh ImgKey from current WeChat process once and retry.
+		if s.shouldRetryImageDecryptAfterKeyRefresh(err) {
+			if refreshedKey, refreshErr := s.tryRefreshImageKeyFromWeChat(); refreshErr == nil && refreshedKey != "" {
+				if out2, ext2, err2 := dat2img.Dat2Image(b); err2 == nil {
+					out, ext, err = out2, ext2, nil
+				} else {
+					err = err2
+				}
+			}
+		}
+	}
 	if err != nil {
 		// If decryption fails, check if this is a file without extension
 		// If so, try to return it as-is
@@ -821,6 +1775,62 @@ func (s *Service) HandleDatFile(c *gin.Context, path string) {
 		c.Data(http.StatusOK, "image/jpg", out)
 		// c.File(path)
 	}
+}
+
+func (s *Service) shouldRetryImageDecryptAfterKeyRefresh(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "aes decryption failed") ||
+		strings.Contains(msg, "pkcs7 padding") ||
+		strings.Contains(msg, "invalid padding")
+}
+
+func (s *Service) tryRefreshImageKeyFromWeChat() (string, error) {
+	s.imgKeyRefreshMu.Lock()
+	if time.Since(s.lastImgKeyRefresh) < 10*time.Second {
+		s.imgKeyRefreshMu.Unlock()
+		return "", nil
+	}
+	s.lastImgKeyRefresh = time.Now()
+	s.imgKeyRefreshMu.Unlock()
+
+	ws := chatwechat.NewService(s.conf)
+	instances, err := ws.GetWeChatInstancesWithError()
+	if err != nil || len(instances) == 0 {
+		return "", fmt.Errorf("wechat instance unavailable: %w", err)
+	}
+
+	target := instances[0]
+	dataDir := filepath.Clean(s.conf.GetDataDir())
+	for _, ins := range instances {
+		insDir := strings.TrimSpace(ins.DataDir)
+		if insDir == "" {
+			continue
+		}
+		cleanInsDir := filepath.Clean(insDir)
+		if strings.Contains(dataDir, cleanInsDir) || strings.Contains(cleanInsDir, dataDir) {
+			target = ins
+			break
+		}
+	}
+
+	imgKey, err := ws.GetImageKey(target)
+	if err != nil {
+		return "", err
+	}
+	imgKey = strings.TrimSpace(imgKey)
+	if imgKey == "" {
+		return "", nil
+	}
+
+	dat2img.SetAesKey(imgKey)
+	if s.conf.GetDataDir() != "" {
+		go dat2img.ScanAndSetXorKey(s.conf.GetDataDir())
+	}
+	log.Info().Str("img_key", imgKey).Msg("refreshed image key for media decryption retry")
+	return imgKey, nil
 }
 
 func (s *Service) HandleVoice(c *gin.Context, data []byte) {
@@ -978,7 +1988,7 @@ func (s *Service) handleGetDBTableData(c *gin.Context) {
 		s.exportData(c, data, format, table)
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, data)
 }
 
@@ -1050,16 +2060,16 @@ func (s *Service) exportData(c *gin.Context, data []map[string]interface{}, form
 				log.Error().Err(err).Msg("Failed to close excel file")
 			}
 		}()
-		
+
 		sheet := "Sheet1"
 		index, _ := f.NewSheet(sheet)
-		
+
 		// Write headers
 		for i, h := range headers {
 			cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 			f.SetCellValue(sheet, cell, h)
 		}
-		
+
 		// Write data
 		for r, row := range data {
 			for cIdx, h := range headers {
@@ -1068,7 +2078,7 @@ func (s *Service) exportData(c *gin.Context, data []map[string]interface{}, form
 				f.SetCellValue(sheet, cell, val)
 			}
 		}
-		
+
 		f.SetActiveSheet(index)
 		c.Writer.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 		c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.xlsx", filename))
@@ -1077,190 +2087,3 @@ func (s *Service) exportData(c *gin.Context, data []map[string]interface{}, form
 		}
 	}
 }
-
-func (s *Service) handleSNS(c *gin.Context) {
-	q := struct {
-		Username string `form:"username"`
-		Limit    int    `form:"limit"`
-		Offset   int    `form:"offset"`
-		Format   string `form:"format"`
-	}{}
-
-	if err := c.BindQuery(&q); err != nil {
-		errors.Err(c, err)
-		return
-	}
-
-	if q.Limit < 0 {
-		q.Limit = 0
-	}
-	if q.Offset < 0 {
-		q.Offset = 0
-	}
-
-	format := strings.ToLower(q.Format)
-
-	// 原始格式需要直接从数据库查询 XML
-	if format == "raw" {
-		s.handleSNSRaw(c, q.Username, q.Limit, q.Offset)
-		return
-	}
-
-	data, err := s.db.GetSNSTimeline(q.Username, q.Limit, q.Offset)
-	if err != nil {
-		errors.Err(c, err)
-		return
-	}
-
-	switch format {
-	case "csv", "xlsx", "excel":
-		s.exportData(c, data, format, "sns_timeline")
-	case "json":
-		c.JSON(http.StatusOK, data)
-	default:
-		c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		c.Writer.Header().Set("Cache-Control", "no-cache")
-		c.Writer.Header().Set("Connection", "keep-alive")
-		c.Writer.Flush()
-
-		for _, item := range data {
-			// 格式化输出
-			if createTimeStr, ok := item["create_time_str"].(string); ok {
-				c.Writer.WriteString(fmt.Sprintf("📅 %s\n", createTimeStr))
-			}
-			if nickname, ok := item["nickname"].(string); ok && nickname != "" {
-				c.Writer.WriteString(fmt.Sprintf("👤 %s\n", nickname))
-			}
-			if contentDesc, ok := item["content_desc"].(string); ok && contentDesc != "" {
-				c.Writer.WriteString(fmt.Sprintf("💬 %s\n", contentDesc))
-			}
-			if location, ok := item["location"].(map[string]interface{}); ok {
-				c.Writer.WriteString("📍 ")
-				if poiName, ok := location["poi_name"].(string); ok && poiName != "" {
-					c.Writer.WriteString(poiName)
-					if poiAddress, ok := location["poi_address"].(string); ok && poiAddress != "" {
-						c.Writer.WriteString(fmt.Sprintf(" (%s)", poiAddress))
-					}
-				} else if city, ok := location["city"].(string); ok && city != "" {
-					c.Writer.WriteString(city)
-				}
-				c.Writer.WriteString("\n")
-			}
-			if contentType, ok := item["content_type"].(string); ok {
-				switch contentType {
-				case "image":
-					if mediaList, ok := item["media_list"].([]interface{}); ok {
-						c.Writer.WriteString(fmt.Sprintf("🖼️ 图片 (%d张)\n", len(mediaList)))
-					}
-				case "video":
-					if mediaList, ok := item["media_list"].([]interface{}); ok && len(mediaList) > 0 {
-						if media, ok := mediaList[0].(map[string]interface{}); ok {
-							if duration, ok := media["duration"].(string); ok && duration != "" {
-								c.Writer.WriteString(fmt.Sprintf("🎬 视频 (%s)\n", duration))
-							} else {
-								c.Writer.WriteString("🎬 视频\n")
-							}
-						}
-					}
-				case "article":
-					if article, ok := item["article"].(map[string]interface{}); ok {
-						if title, ok := article["title"].(string); ok {
-							c.Writer.WriteString(fmt.Sprintf("📰 文章: %s\n", title))
-						}
-						if url, ok := article["url"].(string); ok {
-							c.Writer.WriteString(fmt.Sprintf("   %s\n", url))
-						}
-					}
-				case "finder":
-					if feed, ok := item["finder_feed"].(map[string]interface{}); ok {
-						if nickname, ok := feed["nickname"].(string); ok {
-							c.Writer.WriteString(fmt.Sprintf("📺 视频号: %s\n", nickname))
-						}
-						if desc, ok := feed["desc"].(string); ok && desc != "" {
-							c.Writer.WriteString(fmt.Sprintf("   %s\n", desc))
-						}
-					}
-				}
-			}
-			c.Writer.WriteString(strings.Repeat("=", 80) + "\n\n")
-			c.Writer.Flush()
-		}
-	}
-}
-
-// handleSNSRaw 处理原始格式输出（返回原始 XML）
-func (s *Service) handleSNSRaw(c *gin.Context, username string, limit, offset int) {
-	// 获取 wechatdb.DB
-	db := s.db.GetDB()
-	if db == nil {
-		errors.Err(c, fmt.Errorf("database not available"))
-		return
-	}
-
-	// 获取数据库列表
-	dbs, err := db.GetDBs()
-	if err != nil {
-		errors.Err(c, err)
-		return
-	}
-
-	snsDBs, ok := dbs["sns"]
-	if !ok || len(snsDBs) == 0 {
-		errors.Err(c, fmt.Errorf("SNS database not found"))
-		return
-	}
-
-	// 使用第一个 sns 数据库文件
-	snsFile := snsDBs[0]
-
-	// 构建查询
-	query := "SELECT tid, user_name, content FROM SnsTimeLine"
-
-	if username != "" {
-		// 转义单引号以防止 SQL 注入
-		username = strings.ReplaceAll(username, "'", "''")
-		query += fmt.Sprintf(" WHERE user_name = '%s'", username)
-	}
-
-	query += " ORDER BY tid DESC"
-
-	// 执行查询（使用 ExecuteSQL）
-	result, err := db.ExecuteSQL("sns", snsFile, query)
-	if err != nil {
-		errors.Err(c, err)
-		return
-	}
-
-	// 手动处理分页（因为 ExecuteSQL 不支持 LIMIT/OFFSET）
-	if offset > 0 || limit > 0 {
-		if offset >= len(result) {
-			result = []map[string]interface{}{}
-		} else {
-			result = result[offset:]
-			if limit > 0 && limit < len(result) {
-				result = result[:limit]
-			}
-		}
-	}
-
-	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Flush()
-
-	for _, item := range result {
-		// 输出原始格式
-		if tid, ok := item["tid"]; ok {
-			c.Writer.WriteString(fmt.Sprintf("TID: %v\n", tid))
-		}
-		if userName, ok := item["user_name"]; ok {
-			c.Writer.WriteString(fmt.Sprintf("UserName: %v\n", userName))
-		}
-		if content, ok := item["content"]; ok {
-			c.Writer.WriteString(fmt.Sprintf("Content (XML):\n%v\n", content))
-		}
-		c.Writer.WriteString(strings.Repeat("-", 80) + "\n\n")
-		c.Writer.Flush()
-	}
-}
-

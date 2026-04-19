@@ -1,0 +1,6 @@
+SPS 1 len 36B: 2764002aac2b403c0113f2e022000007d000030d41d08005160001443b7bdf076870ca80
+PPS 1 len 4B: 28ee3cb0
+PPS 2 len 4B: 28ee3cb0
+PPS 3 len 4B: 28ee3cb0
+PPS 4 len 4B: 28ee3cb0
+Codecs parameter (assuming avc1) from SPS id 0: avc1.64002A

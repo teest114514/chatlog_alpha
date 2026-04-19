@@ -15,7 +15,7 @@ const (
 
 // InfoBarViewHeight info bar height.
 const (
-	InfoBarViewHeight = 8
+	InfoBarViewHeight = 7
 	accountRow        = 0
 	statusRow         = 1
 	platformRow       = 2
@@ -23,7 +23,6 @@ const (
 	dataUsageRow      = 4
 	workUsageRow      = 5
 	httpServerRow     = 6
-	autoDecryptRow    = 7
 
 	// 列索引
 	labelCol1 = 0 // 第一列标签
@@ -120,18 +119,18 @@ func New() *InfoBar {
 	)
 	table.SetCell(dataUsageRow, valueCol2, tview.NewTableCell(""))
 
-	// Work Usage 和 Work Dir 行
+	// all_keys.json 状态与路径行（替代 Work Dir）
 	table.SetCell(
 		workUsageRow,
 		labelCol1,
-		tview.NewTableCell(fmt.Sprintf(" [%s::]%s", headerColor, "Work Usage:")),
+		tview.NewTableCell(fmt.Sprintf(" [%s::]%s", headerColor, "Keys Status:")),
 	)
 	table.SetCell(workUsageRow, valueCol1, tview.NewTableCell(""))
 
 	table.SetCell(
 		workUsageRow,
 		labelCol2,
-		tview.NewTableCell(fmt.Sprintf(" [%s::]%s", headerColor, "Work Dir:")),
+		tview.NewTableCell(fmt.Sprintf(" [%s::]%s", headerColor, "all_keys.json:")),
 	)
 	table.SetCell(workUsageRow, valueCol2, tview.NewTableCell(""))
 
@@ -149,20 +148,6 @@ func New() *InfoBar {
 		tview.NewTableCell(fmt.Sprintf(" [%s::]%s", headerColor, "Image Key:")),
 	)
 	table.SetCell(httpServerRow, valueCol2, tview.NewTableCell(""))
-
-	table.SetCell(
-		autoDecryptRow,
-		labelCol1,
-		tview.NewTableCell(fmt.Sprintf(" [%s::]%s", headerColor, "Auto Decrypt:")),
-	)
-	table.SetCell(autoDecryptRow, valueCol1, tview.NewTableCell(""))
-
-	table.SetCell(
-		autoDecryptRow,
-		labelCol2,
-		tview.NewTableCell(fmt.Sprintf(" [%s::]%s", headerColor, "WAL:")),
-	)
-	table.SetCell(autoDecryptRow, valueCol2, tview.NewTableCell(""))
 
 	// infobar
 	infoBar := &InfoBar{
@@ -205,9 +190,9 @@ func (info *InfoBar) UpdateDataUsageDir(dataUsage string, dataDir string) {
 	info.table.GetCell(dataUsageRow, valueCol2).SetText(dataDir)
 }
 
-func (info *InfoBar) UpdateWorkUsageDir(workUsage string, workDir string) {
-	info.table.GetCell(workUsageRow, valueCol1).SetText(workUsage)
-	info.table.GetCell(workUsageRow, valueCol2).SetText(workDir)
+func (info *InfoBar) UpdateAllKeys(status string, allKeysPath string) {
+	info.table.GetCell(workUsageRow, valueCol1).SetText(status)
+	info.table.GetCell(workUsageRow, valueCol2).SetText(allKeysPath)
 }
 
 // UpdateHTTPServer updates HTTP Server value.
@@ -217,15 +202,6 @@ func (info *InfoBar) UpdateHTTPServer(server string) {
 
 func (info *InfoBar) UpdateImageKey(key string) {
 	info.table.GetCell(httpServerRow, valueCol2).SetText(key)
-}
-
-// UpdateAutoDecrypt updates Auto Decrypt value.
-func (info *InfoBar) UpdateAutoDecrypt(text string) {
-	info.table.GetCell(autoDecryptRow, valueCol1).SetText(text)
-}
-
-func (info *InfoBar) UpdateWal(text string) {
-	info.table.GetCell(autoDecryptRow, valueCol2).SetText(text)
 }
 
 // Draw draws this primitive onto the screen.

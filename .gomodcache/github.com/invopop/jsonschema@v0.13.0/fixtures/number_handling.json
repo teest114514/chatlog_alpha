@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/number-handler",
+  "$ref": "#/$defs/NumberHandler",
+  "$defs": {
+    "NumberHandler": {
+      "properties": {
+        "int64": {
+          "type": "integer",
+          "default": 12
+        },
+        "float32": {
+          "type": "number",
+          "default": 12.5
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "int64",
+        "float32"
+      ]
+    }
+  }
+}

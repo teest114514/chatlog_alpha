@@ -16,9 +16,7 @@ env:
 jobs:
   release:
     name: Release Binary
-    runs-on: ubuntu-latest
-    container:
-      image: goreleaser/goreleaser-cross:v1.24
+    runs-on: macos-latest
     permissions:
       contents: write
       packages: write
@@ -33,9 +31,15 @@ jobs:
       - name: Fix git permissions
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install UPX
-        uses: crazy-max/ghaction-upx@v3
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
+          go-version-file: go.mod
+
+      - name: Setup GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
           install-only: true
 
       - name: Run GoReleaser (Release)
@@ -58,7 +62,7 @@ jobs:
           prerelease: true
           make_latest: false
           files: |
-            dist/**/*.exe
+            dist/**/chatlog
             dist/**/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -67,5 +71,7 @@ jobs:
         if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
-          name: chatlog-snapshot
-          path: dist/chatlog_windows_amd64_v1/chatlog.exe
+          name: chatlog-snapshot-macos
+          path: |
+            dist/**/chatlog
+            dist/**/*.zip

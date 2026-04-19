@@ -339,6 +339,7 @@
 
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('dashboard')">仪表盘 & 数据库</button>
+            <button class="tab-btn" onclick="switchTab('wxcli')">wx-cli 兼容</button>
             <button class="tab-btn" onclick="switchTab('session')">最近会话</button>
             <button class="tab-btn" onclick="switchTab('chatroom')">群聊管理</button>
             <button class="tab-btn" onclick="switchTab('contact')">联系人</button>
@@ -348,11 +349,93 @@
 
         <!-- Dashboard / DB List -->
         <div id="dashboard" class="tab-content active">
-            <h2>当前已解密数据库</h2>
+            <h2>当前可查询数据库</h2>
             <p class="text-gray" style="margin-bottom: 20px;">点击下方的数据库文件可直接浏览其表结构和数据内容。</p>
             <div id="db-list-container">
                 <div class="loading">加载中...</div>
             </div>
+        </div>
+
+        <div id="wxcli" class="tab-content">
+            <h2>wx-cli 兼容接口调试</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>命令</label>
+                    <select id="wxcli-cmd">
+                        <option value="ping">ping</option>
+                        <option value="sessions">sessions</option>
+                        <option value="history">history</option>
+                        <option value="search">search</option>
+                        <option value="unread">unread</option>
+                        <option value="members">members</option>
+                        <option value="new_messages">new_messages</option>
+                        <option value="stats">stats</option>
+                        <option value="favorites">favorites</option>
+                        <option value="sns_notifications">sns_notifications</option>
+                        <option value="sns_feed">sns_feed</option>
+                        <option value="sns_search">sns_search</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>chat / 聊天对象</label>
+                    <input type="text" id="wxcli-chat" placeholder="history/members/stats 使用">
+                </div>
+                <div class="form-group">
+                    <label>keyword</label>
+                    <input type="text" id="wxcli-keyword" placeholder="search/sns_search">
+                </div>
+                <div class="form-group">
+                    <label>chats (逗号分隔)</label>
+                    <input type="text" id="wxcli-chats" placeholder="search 使用">
+                </div>
+                <div class="form-group">
+                    <label>user</label>
+                    <input type="text" id="wxcli-user" placeholder="sns_feed/sns_search">
+                </div>
+                <div class="form-group">
+                    <label>filter</label>
+                    <input type="text" id="wxcli-filter" placeholder="unread: private,group">
+                </div>
+                <div class="form-group">
+                    <label>time</label>
+                    <input type="text" id="wxcli-time" placeholder="2026-04-18 或 2026-04-18~2026-04-19">
+                </div>
+                <div class="form-group">
+                    <label>since (秒级时间戳)</label>
+                    <input type="text" id="wxcli-since" placeholder="例如 1776469200">
+                </div>
+                <div class="form-group">
+                    <label>until (秒级时间戳)</label>
+                    <input type="text" id="wxcli-until" placeholder="例如 1776555600">
+                </div>
+                <div class="form-group">
+                    <label>limit</label>
+                    <input type="number" id="wxcli-limit" value="50">
+                </div>
+                <div class="form-group">
+                    <label>offset</label>
+                    <input type="number" id="wxcli-offset" value="0">
+                </div>
+                <div class="form-group">
+                    <label>msg_type / fav_type</label>
+                    <input type="text" id="wxcli-type" placeholder="如 1/3/49 或 fav type">
+                </div>
+                <div class="form-group">
+                    <label>include_read</label>
+                    <select id="wxcli-include-read">
+                        <option value="">默认 false</option>
+                        <option value="true">true</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>state(JSON)</label>
+                    <input type="text" id="wxcli-state" placeholder='{"filehelper":1776570000}'>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="queryWxCLI()">执行</button>
+            </div>
+            <div id="wxcli-result" class="result-area hidden"></div>
         </div>
 
         <!-- Other Tabs (Keep same as before) -->
@@ -366,10 +449,8 @@
                 <div class="form-group">
                     <label>输出格式</label>
                     <select id="session-format">
-                        <option value="json">JSON (预览)</option>
-                        <option value="csv">CSV 导出</option>
-                        <option value="xlsx">Excel 导出</option>
-                        <option value="text">纯文本</option>
+                        <option value="yaml">YAML (默认)</option>
+                        <option value="json">JSON</option>
                     </select>
                 </div>
             </div>
@@ -388,10 +469,8 @@
                 <div class="form-group">
                     <label>输出格式</label>
                     <select id="chatroom-format">
-                        <option value="json">JSON (预览)</option>
-                        <option value="csv">CSV 导出</option>
-                        <option value="xlsx">Excel 导出</option>
-                        <option value="text">纯文本</option>
+                        <option value="yaml">YAML (默认)</option>
+                        <option value="json">JSON</option>
                     </select>
                 </div>
             </div>
@@ -410,10 +489,8 @@
                 <div class="form-group">
                     <label>输出格式</label>
                     <select id="contact-format">
-                        <option value="json">JSON (预览)</option>
-                        <option value="csv">CSV 导出</option>
-                        <option value="xlsx">Excel 导出</option>
-                        <option value="text">纯文本</option>
+                        <option value="yaml">YAML (默认)</option>
+                        <option value="json">JSON</option>
                     </select>
                 </div>
             </div>
@@ -435,11 +512,8 @@
                 <div class="form-group">
                     <label>输出格式</label>
                     <select id="sns-format">
-                        <option value="json">JSON (预览)</option>
-                        <option value="csv">CSV 导出</option>
-                        <option value="xlsx">Excel 导出</option>
-                        <option value="text">纯文本</option>
-                        <option value="raw">原始格式 (XML)</option>
+                        <option value="yaml">YAML (默认)</option>
+                        <option value="json">JSON</option>
                     </select>
                 </div>
             </div>
@@ -474,11 +548,8 @@
                 <div class="form-group">
                     <label>输出格式</label>
                     <select id="chatlog-format">
-                        <option value="json">JSON (预览)</option>
-                        <option value="chatlab">ChatLab JSON</option>
-                        <option value="csv">CSV 导出</option>
-                        <option value="xlsx">Excel 导出</option>
-                        <option value="text">纯文本</option>
+                        <option value="yaml">YAML (默认)</option>
+                        <option value="json">JSON</option>
                     </select>
                 </div>
             </div>
@@ -613,7 +684,38 @@
                 const data = await res.json();
                 
                 let html = '';
-                for (const [group, files] of Object.entries(data)) {
+                const entries = Object.entries(data)
+                    .filter(([, files]) => Array.isArray(files) && files.length > 0);
+
+                const order = ['message', 'session', 'contact', 'sns', 'media'];
+                entries.sort((a, b) => {
+                    const ai = order.indexOf(a[0]);
+                    const bi = order.indexOf(b[0]);
+                    if (ai === -1 && bi === -1) return a[0].localeCompare(b[0]);
+                    if (ai === -1) return 1;
+                    if (bi === -1) return -1;
+                    return ai - bi;
+                });
+
+                // Probe queryability so dashboard can label each database.
+                const statusMap = {};
+                const probes = [];
+                for (const [group, files] of entries) {
+                    files.forEach(file => {
+                        const key = `${group}::${file}`;
+                        probes.push((async () => {
+                            try {
+                                const r = await fetch(`/api/v1/db/tables?group=${encodeURIComponent(group)}&file=${encodeURIComponent(file)}`);
+                                statusMap[key] = r.ok;
+                            } catch (_) {
+                                statusMap[key] = false;
+                            }
+                        })());
+                    });
+                }
+                await Promise.all(probes);
+
+                for (const [group, files] of entries) {
                     html += `
                         <div class="db-group">
                             <div class="db-group-title">
@@ -625,11 +727,16 @@
                     
                     if (files && files.length > 0) {
                         files.forEach(file => {
-                            // Escape backslashes for JS string
-                            const escapedFile = file.replace(/\\/g, '\\\\');
-                            html += `<div class="db-item" onclick="openDBViewer('${group}', '${escapedFile}')">
+                            const encodedGroup = encodeURIComponent(group);
+                            const encodedFile = encodeURIComponent(file);
+                            const key = `${group}::${file}`;
+                            const ok = !!statusMap[key];
+                            const statusBadge = ok
+                                ? `<span class="badge" style="background:#e6f6ec;color:#1f8b4c;border:1px solid #bde7cc;">可查询</span>`
+                                : `<span class="badge" style="background:#fdecec;color:#b42318;border:1px solid #f8c9c5;">不可查询</span>`;
+                            html += `<div class="db-item" onclick="openDBViewer('${encodedGroup}', '${encodedFile}')">
                                 <span style="font-weight:bold;">📄 ${file.split(/[\\/]/).pop()}</span>
-                                <span class="text-gray text-sm" style="margin-left:auto;">${file}</span>
+                                ${statusBadge}
                             </div>`;
                         });
                     } else {
@@ -638,13 +745,18 @@
                     
                     html += `</div></div>`;
                 }
+                if (!html) {
+                    html = `<div class="text-gray">暂无可查询数据库。请先获取密钥并确认 all_keys.json 可读。</div>`;
+                }
                 container.innerHTML = html;
             } catch (e) {
                 container.innerHTML = `<div class="text-danger">加载失败: ${e.message}</div>`;
             }
         }
 
-        async function openDBViewer(group, file) {
+        async function openDBViewer(groupEncoded, fileEncoded) {
+            const group = decodeURIComponent(groupEncoded);
+            const file = decodeURIComponent(fileEncoded);
             currentDB = { group, file };
             document.getElementById('modal-title').textContent = `正在查看: ${file.split(/[\/]/).pop()}`;
             document.getElementById('db-viewer-modal').classList.remove('hidden');
@@ -669,7 +781,8 @@
                 let html = '';
                 if(tables && tables.length > 0) {
                     tables.forEach(t => {
-                        html += `<div class="db-table-item" onclick="loadTableData('${t}')">${t}</div>`;
+                        const encodedTable = encodeURIComponent(t);
+                        html += `<div class="db-table-item" onclick="loadTableData('${encodedTable}')">${t}</div>`;
                     });
                 } else {
                     html = '<div class="text-gray">此数据库中没有表。</div>';
@@ -692,7 +805,8 @@
             currentTable = null;
         }
 
-        async function loadTableData(table) {
+        async function loadTableData(tableEncoded) {
+            const table = decodeURIComponent(tableEncoded);
             currentTable = table;
             currentPage = 0;
             currentKeyword = '';
@@ -849,6 +963,66 @@
              window.location.href = url;
         }
 
+        async function queryWxCLI() {
+            const resultArea = document.getElementById('wxcli-result');
+            resultArea.classList.remove('hidden');
+            resultArea.innerHTML = '<div class="loading">正在处理...</div>';
+            try {
+                const cmd = document.getElementById('wxcli-cmd').value;
+                const params = new URLSearchParams();
+                const chat = document.getElementById('wxcli-chat').value.trim();
+                const keyword = document.getElementById('wxcli-keyword').value.trim();
+                const chats = document.getElementById('wxcli-chats').value.trim();
+                const user = document.getElementById('wxcli-user').value.trim();
+                const filter = document.getElementById('wxcli-filter').value.trim();
+                const time = document.getElementById('wxcli-time').value.trim();
+                const since = document.getElementById('wxcli-since').value.trim();
+                const until = document.getElementById('wxcli-until').value.trim();
+                const limit = document.getElementById('wxcli-limit').value.trim();
+                const offset = document.getElementById('wxcli-offset').value.trim();
+                const typeVal = document.getElementById('wxcli-type').value.trim();
+                const includeRead = document.getElementById('wxcli-include-read').value;
+                const state = document.getElementById('wxcli-state').value.trim();
+
+                if (chat) params.append('chat', chat);
+                if (keyword) params.append('keyword', keyword);
+                if (chats) params.append('chats', chats);
+                if (user) params.append('user', user);
+                if (filter) params.append('filter', filter);
+                if (time) params.append('time', time);
+                if (since) params.append('since', since);
+                if (until) params.append('until', until);
+                if (limit) params.append('limit', limit);
+                if (offset) params.append('offset', offset);
+                if (state) params.append('state', state);
+                if (includeRead) params.append('include_read', includeRead);
+
+                if (typeVal) {
+                    if (cmd === 'favorites') params.append('fav_type', typeVal);
+                    else params.append('msg_type', typeVal);
+                }
+
+                const path = `/api/v1/${cmd}`;
+                const url = params.toString() ? `${path}?${params.toString()}` : path;
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(await res.text());
+                const text = await res.text();
+                resultArea.innerHTML = `
+                    <div class="result-header">
+                        <span class="url-display">${url}</span>
+                        <button class="btn btn-secondary text-sm" onclick="copyText(${JSON.stringify(url)})">复制URL</button>
+                    </div>
+                    <pre>${escapeHtml(text)}</pre>
+                `;
+            } catch (e) {
+                resultArea.innerHTML = `<div style="color:var(--danger)">请求错误: ${e.message}</div>`;
+            }
+        }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text);
+        }
+
         // --- Generic API Query (Keep same as before) ---
         async function queryAPI(type) {
             // ... (Same logic as before, just kept for brevity since I'm overwriting file)
@@ -876,7 +1050,7 @@
                     const username = document.getElementById('sns-username').value;
                     const limit = document.getElementById('sns-limit').value;
                     format = document.getElementById('sns-format').value;
-                    if(username) params.append('username', username);
+                    if(username) params.append('user', username);
                     if(limit) params.append('limit', limit);
                 } else if (type === 'chatlog') {
                     const time = document.getElementById('chatlog-time').value;
@@ -887,7 +1061,7 @@
                         return;
                     }
                     params.append('time', time);
-                    params.append('talker', talker);
+                    params.append('chat', talker);
                     
                     const sender = document.getElementById('chatlog-sender').value;
                     if(sender) params.append('sender', sender);
@@ -902,34 +1076,52 @@
                 }
 
                 params.append('format', format);
-                const url = `/api/v1/${type}?${params.toString()}`;
-
-                if (format === 'csv' || format === 'xlsx') {
-                    window.location.href = url;
-                    resultArea.innerHTML = `<div class="text-success">已触发 ${format.toUpperCase()} 下载。<br>请求URL: <span class="url-display">${url}</span></div>`;
-                } else {
-                    const res = await fetch(url);
-                    if (!res.ok) throw new Error(res.statusText);
-                    
-                    let text;
-                    if(format === 'json' || format === 'chatlab') {
-                        const json = await res.json();
-                        text = JSON.stringify(json, null, 2);
-                    } else {
-                        text = await res.text();
+                let endpoint = `/api/v1/${type}`;
+                if (type === 'chatlog') {
+                    endpoint = '/api/v1/history';
+                } else if (type === 'session') {
+                    endpoint = '/api/v1/sessions';
+                    if (params.has('keyword')) {
+                        params.set('query', params.get('keyword'));
+                        params.delete('keyword');
                     }
-
-                    resultArea.innerHTML = `
-                        <div class="result-header">
-                            <span class="url-display">${url}</span>
-                            <div style="display:flex; gap:10px;">
-                                <button class="btn btn-secondary text-sm" onclick="downloadResult('${type}', '${format}')">下载</button>
-                                <button class="btn btn-secondary text-sm" onclick="copyResult('${type}')">复制</button>
-                            </div>
-                        </div>
-                        <pre id="${type}-pre">${escapeHtml(text)}</pre>
-                    `;
+                } else if (type === 'contact') {
+                    endpoint = '/api/v1/contacts';
+                    if (params.has('keyword')) {
+                        params.set('query', params.get('keyword'));
+                        params.delete('keyword');
+                    }
+                } else if (type === 'chatroom') {
+                    endpoint = '/api/v1/chatrooms';
+                    if (params.has('keyword')) {
+                        params.set('query', params.get('keyword'));
+                        params.delete('keyword');
+                    }
+                } else if (type === 'sns') {
+                    endpoint = '/api/v1/sns_feed';
                 }
+                const url = `${endpoint}?${params.toString()}`;
+
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(res.statusText);
+
+                let text;
+                if(format === 'json') {
+                    const json = await res.json();
+                    text = JSON.stringify(json, null, 2);
+                } else {
+                    text = await res.text();
+                }
+
+                resultArea.innerHTML = `
+                    <div class="result-header">
+                        <span class="url-display">${url}</span>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn btn-secondary text-sm" onclick="copyResult('${type}')">复制</button>
+                        </div>
+                    </div>
+                    <pre id="${type}-pre">${escapeHtml(text)}</pre>
+                `;
 
             } catch (e) {
                 resultArea.innerHTML = `<div style="color:var(--danger)">请求错误: ${e.message}</div>`;
@@ -941,7 +1133,7 @@
             let mimeType = 'text/plain';
             let ext = 'txt';
             
-            if (format === 'json' || format === 'chatlab') {
+            if (format === 'json') {
                 mimeType = 'application/json';
                 ext = 'json';
             }

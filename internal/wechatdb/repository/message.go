@@ -85,7 +85,7 @@ func (r *Repository) parseTalkerAndSender(ctx context.Context, talker, sender st
 		for i := 0; i < len(talkers); i++ {
 			if contact, _ := r.GetContact(ctx, talkers[i]); contact != nil {
 				talkers[i] = contact.UserName
-			} else if chatRoom, _ := r.GetChatRoom(ctx, talker); chatRoom != nil {
+			} else if chatRoom, _ := r.GetChatRoom(ctx, talkers[i]); chatRoom != nil {
 				talkers[i] = chatRoom.Name
 			}
 		}

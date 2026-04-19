@@ -6,10 +6,9 @@ endif
 LDFLAGS := -ldflags '-X "github.com/sjzar/chatlog/pkg/version.Version=$(VERSION)" -w -s'
 
 PLATFORMS := \
-	windows/amd64
+	darwin/arm64
 
-UPX_PLATFORMS := \
-	windows/amd64
+UPX_PLATFORMS :=
 
 .PHONY: all clean lint tidy test build crossbuild upx
 

@@ -36,7 +36,9 @@ var (
 	V4Format1 = Format{Header: []byte{0x07, 0x08, 0x56, 0x31, 0x08, 0x07}, AesKey: []byte("cfcd208495d565ef")}
 	// V4 Type 2: 0x07 0x08 0x56 0x32 0x08 0x07
 	V4Format2 = Format{Header: []byte{0x07, 0x08, 0x56, 0x32, 0x08, 0x07}, AesKey: []byte("0000000000000000")} // User needs to provide key
-	V4Formats = []*Format{&V4Format1, &V4Format2}
+	// Optional alternate AES key for V4 type2 (hex-decoded variant of same configured key).
+	V4Format2AltAesKey []byte
+	V4Formats          = []*Format{&V4Format1, &V4Format2}
 
 	// WeChat v4 related constants
 	V4XorKey byte = 0x37               // Default XOR key for WeChat v4 dat files
@@ -51,10 +53,23 @@ func Dat2Image(data []byte) ([]byte, string, error) {
 
 	// Check if this is a WeChat v4 dat file (Check first 6 bytes)
 	if len(data) >= 6 {
-		for _, format := range V4Formats {
-			if bytes.Equal(data[:6], format.Header) {
-				return Dat2ImageV4(data, format.AesKey)
+		if bytes.Equal(data[:6], V4Format1.Header) {
+			return Dat2ImageV4(data, V4Format1.AesKey)
+		}
+		if bytes.Equal(data[:6], V4Format2.Header) {
+			// WeFlow-compatible strategy:
+			// 1) try configured raw16 key first
+			// 2) fallback to hex-decoded key if available
+			out, ext, err := Dat2ImageV4(data, V4Format2.AesKey)
+			if err == nil {
+				return out, ext, nil
 			}
+			if len(V4Format2AltAesKey) == aes.BlockSize {
+				if out2, ext2, err2 := Dat2ImageV4(data, V4Format2AltAesKey); err2 == nil {
+					return out2, ext2, nil
+				}
+			}
+			return nil, "", err
 		}
 	}
 
@@ -168,23 +183,27 @@ func ScanAndSetXorKey(dirPath string) (byte, error) {
 }
 
 func SetAesKey(key string) {
+	key = strings.TrimSpace(key)
 	if key == "" {
 		return
 	}
-	// Dart implementation uses asciiKey16 (taking first 16 chars/bytes)
-	// If the input is hex, decoding is fine, but if it's a raw string like "cfcd...",
-	// we should handle it carefully. Assuming input is hex string here as per original Go.
-	decoded, err := hex.DecodeString(key)
-	if err != nil {
-		// Fallback: if hex decode fails, use raw bytes if length is 16 (matching Dart logic partially)
-		if len(key) == 16 {
-			V4Format2.AesKey = []byte(key)
-			return
-		}
-		log.Error().Err(err).Msg("invalid aes key")
-		return
+
+	// Primary strategy (WeFlow-compatible): first 16 bytes of raw key string.
+	if len(key) >= aes.BlockSize {
+		V4Format2.AesKey = []byte(key[:aes.BlockSize])
+	} else if len(key) == aes.BlockSize {
+		V4Format2.AesKey = []byte(key)
 	}
-	V4Format2.AesKey = decoded
+
+	// Secondary fallback: if key looks like hex, keep decoded variant for retry.
+	V4Format2AltAesKey = nil
+	if decoded, err := hex.DecodeString(key); err == nil {
+		if len(decoded) >= aes.BlockSize {
+			V4Format2AltAesKey = decoded[:aes.BlockSize]
+		}
+	} else {
+		log.Debug().Err(err).Msg("image key is not hex, use raw16 mode")
+	}
 }
 
 // Dat2ImageV4 processes WeChat v4 dat image files
@@ -203,54 +222,69 @@ func Dat2ImageV4(data []byte, aesKey []byte) ([]byte, string, error) {
 	// Skip header (15 bytes)
 	fileData := data[15:]
 
-	// 2. AES Decryption Logic
-	// Calculate aligned size: size + (16 - size % 16)
-	// This ensures we read the full PKCS7 padded block
-	alignedAesSize := aesSize + (16 - (aesSize % 16))
-
-	if uint32(len(fileData)) < alignedAesSize {
-		return nil, "", fmt.Errorf("file data too short for declared AES length")
+	// 2) Try both known size rules used by different V4 file batches:
+	// rule A: round up only when needed
+	// rule B: always add one block (WeFlow native compatible for some files)
+	alignNeeded := aesSize
+	if mod := aesSize % aes.BlockSize; mod != 0 {
+		alignNeeded = aesSize + (aes.BlockSize - mod)
+	}
+	alignWithExtra := aesSize + (aes.BlockSize - (aesSize % aes.BlockSize))
+	if aesSize%aes.BlockSize == 0 {
+		alignWithExtra = aesSize + aes.BlockSize
 	}
 
-	// Split data: [AES Part] [Middle Raw Part] [XOR Part]
-	aesPart := fileData[:alignedAesSize]
-	remainingPart := fileData[alignedAesSize:]
-
-	var unpaddedAesData []byte
-	var err error
-
-	// Decrypt AES part
-	if len(aesPart) > 0 {
-		unpaddedAesData, err = decryptAESECBStrict(aesPart, aesKey)
-		if err != nil {
-			return nil, "", fmt.Errorf("AES decryption failed: %v", err)
+	var (
+		result  []byte
+		lastErr error
+	)
+	tryAligned := func(alignedAesSize uint32) ([]byte, error) {
+		if uint32(len(fileData)) < alignedAesSize {
+			return nil, fmt.Errorf("file data too short for declared AES length")
 		}
+		// Split data: [AES Part] [Middle Raw Part] [XOR Part]
+		aesPart := fileData[:alignedAesSize]
+		remainingPart := fileData[alignedAesSize:]
+		var unpaddedAesData []byte
+		if len(aesPart) > 0 {
+			dec, err := decryptAESECBStrict(aesPart, aesKey)
+			if err != nil {
+				return nil, fmt.Errorf("AES decryption failed: %v", err)
+			}
+			unpaddedAesData = dec
+		}
+		if uint32(len(remainingPart)) < xorSize {
+			return nil, fmt.Errorf("file data too short for declared XOR length")
+		}
+		rawLen := uint32(len(remainingPart)) - xorSize
+		rawMiddleData := remainingPart[:rawLen]
+		xorTailData := remainingPart[rawLen:]
+		decryptedXorData := make([]byte, len(xorTailData))
+		for i := range xorTailData {
+			decryptedXorData[i] = xorTailData[i] ^ V4XorKey
+		}
+		totalLen := len(unpaddedAesData) + len(rawMiddleData) + len(decryptedXorData)
+		out := make([]byte, 0, totalLen)
+		out = append(out, unpaddedAesData...)
+		out = append(out, rawMiddleData...)
+		out = append(out, decryptedXorData...)
+		return out, nil
 	}
 
-	// 3. Handle Middle and XOR Parts
-	// XOR size validation
-	if uint32(len(remainingPart)) < xorSize {
-		return nil, "", fmt.Errorf("file data too short for declared XOR length")
+	for _, sz := range []uint32{alignNeeded, alignWithExtra} {
+		if result != nil && len(result) > 0 {
+			break
+		}
+		out, err := tryAligned(sz)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		result = out
 	}
-
-	rawLen := uint32(len(remainingPart)) - xorSize
-	rawMiddleData := remainingPart[:rawLen]
-	xorTailData := remainingPart[rawLen:]
-
-	// Decrypt XOR part
-	decryptedXorData := make([]byte, len(xorTailData))
-	for i := range xorTailData {
-		decryptedXorData[i] = xorTailData[i] ^ V4XorKey
+	if result == nil {
+		return nil, "", lastErr
 	}
-
-	// 4. Reassemble: [Unpadded AES] + [Raw Middle] + [Decrypted XOR]
-	// Pre-allocate exact size
-	totalLen := len(unpaddedAesData) + len(rawMiddleData) + len(decryptedXorData)
-	result := make([]byte, 0, totalLen)
-
-	result = append(result, unpaddedAesData...)
-	result = append(result, rawMiddleData...)
-	result = append(result, decryptedXorData...)
 
 	// Identify image type
 	imgType := ""

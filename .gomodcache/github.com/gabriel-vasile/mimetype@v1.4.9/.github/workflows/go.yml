@@ -1,0 +1,26 @@
+name: Tests and linters
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4.2.2
+    - name: Install Go
+      uses: actions/setup-go@v5.4.0
+      with:
+        go-version-file: 'go.mod'
+    - name: Run linters
+      uses: golangci/golangci-lint-action@v7
+      with:
+        version: "v2.0.2"
+    - name: Run tests
+      run: go test -race ./...

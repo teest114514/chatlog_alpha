@@ -18,18 +18,16 @@ func init() {
 	serverCmd.Flags().StringVarP(&serverDataKey, "data-key", "k", "", "data key")
 	serverCmd.Flags().StringVarP(&serverImgKey, "img-key", "i", "", "img key")
 	serverCmd.Flags().StringVarP(&serverWorkDir, "work-dir", "w", "", "work dir")
-	serverCmd.Flags().BoolVarP(&serverAutoDecrypt, "auto-decrypt", "", false, "auto decrypt")
 }
 
 var (
-	serverAddr        string
-	serverDataDir     string
-	serverDataKey     string
-	serverImgKey      string
-	serverWorkDir     string
-	serverPlatform    string
-	serverVer         int
-	serverAutoDecrypt bool
+	serverAddr     string
+	serverDataDir  string
+	serverDataKey  string
+	serverImgKey   string
+	serverWorkDir  string
+	serverPlatform string
+	serverVer      int
 )
 
 var serverCmd = &cobra.Command{
@@ -72,9 +70,6 @@ func getServerConfig() map[string]any {
 	}
 	if serverVer != 0 {
 		cmdConf["version"] = serverVer
-	}
-	if serverAutoDecrypt {
-		cmdConf["auto_decrypt"] = true
 	}
 	return cmdConf
 }

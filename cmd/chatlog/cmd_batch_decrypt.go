@@ -16,7 +16,7 @@ var (
 		Use:     "batch-decrypt",
 		Short:   "批量解密已存在的.dat图片文件",
 		Long:    `扫描指定目录下的所有.dat文件，并批量解密保存为普通图片格式`,
-		Example: `chatlog batch-decrypt --data-dir "E:\xwechat_files\wxid_sp86q2lhlm6f22_fffc" --data-key "66363764393236353832316536663530" --platform windows --version 4`,
+		Example: `chatlog batch-decrypt --data-dir "/Users/lee/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/wxid_xxx" --data-key "66363764393236353832316536663530" --platform darwin --version 4`,
 		Run:     BatchDecrypt,
 	}
 
@@ -38,7 +38,7 @@ func init() {
 	batchDecryptCmd.Flags().StringVar(&batchDataDir, "data-dir", "", "微信数据目录路径")
 	batchDecryptCmd.Flags().StringVar(&batchDataKey, "data-key", "", "数据密钥")
 	batchDecryptCmd.Flags().StringVar(&batchImgKey, "img-key", "", "图片密钥")
-	batchDecryptCmd.Flags().StringVar(&batchPlatform, "platform", "windows", "平台 (windows/darwin)")
+	batchDecryptCmd.Flags().StringVar(&batchPlatform, "platform", "darwin", "平台 (darwin)")
 	batchDecryptCmd.Flags().IntVar(&batchVersion, "version", 4, "微信版本 (3/4)")
 
 	// 可选参数

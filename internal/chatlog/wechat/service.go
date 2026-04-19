@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -305,7 +306,8 @@ func (s *Service) DecryptDBFile(dbFile string) error {
 		}
 	}()
 
-	if err := decryptor.Decrypt(context.Background(), dbFile, s.conf.GetDataKey(), outputFile); err != nil {
+	dataKey := s.getDataKeyForDB(dbFile)
+	if err := decryptor.Decrypt(context.Background(), dbFile, dataKey, outputFile); err != nil {
 		if err == errors.ErrAlreadyDecrypted {
 			if data, err := os.ReadFile(dbFile); err == nil {
 				outputFile.Write(data)
@@ -467,6 +469,11 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 	if !s.conf.GetWalEnabled() {
 		return false, nil
 	}
+	// macOS v4 currently uses wx-cli compatible page decrypt flow.
+	// Skip SQLCipher-HMAC incremental path to avoid mixed algorithm mismatch.
+	if s.conf.GetPlatform() == "darwin" && s.conf.GetVersion() == 4 {
+		return false, nil
+	}
 	walPath := dbFile + "-wal"
 	if _, err := os.Stat(walPath); err != nil {
 		if os.IsNotExist(err) {
@@ -499,7 +506,8 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 		return true, err
 	}
 
-	keyBytes, err := hex.DecodeString(s.conf.GetDataKey())
+	dataKey := s.getDataKeyForDB(dbFile)
+	keyBytes, err := hex.DecodeString(dataKey)
 	if err != nil {
 		return true, errors.DecodeKeyFailed(err)
 	}
@@ -620,6 +628,92 @@ func (s *Service) IncrementalDecryptDBFile(dbFile string) (bool, error) {
 		return true, nil
 	}
 	return true, nil
+}
+
+type allKeysEntry struct {
+	EncKey string `json:"enc_key"`
+}
+
+func (s *Service) getDataKeyForDB(dbFile string) string {
+	fallback := strings.TrimSpace(s.conf.GetDataKey())
+	if s.conf.GetVersion() != 4 || s.conf.GetPlatform() != "darwin" {
+		return fallback
+	}
+
+	keys, err := loadAllKeysMap(s.conf.GetDataDir())
+	if err != nil || len(keys) == 0 {
+		return fallback
+	}
+
+	if rel, ok := relPathFromDataDir(s.conf.GetDataDir(), dbFile); ok {
+		candidates := []string{
+			normalizeKeyPath(rel),
+			normalizeKeyPath(strings.TrimPrefix(rel, "db_storage/")),
+		}
+		for _, c := range candidates {
+			if key, ok := keys[c]; ok && len(key) == 64 {
+				return key
+			}
+		}
+	}
+
+	return fallback
+}
+
+func loadAllKeysMap(dataDir string) (map[string]string, error) {
+	paths := []string{
+		filepath.Join(dataDir, "all_keys.json"),
+	}
+	if strings.EqualFold(filepath.Base(filepath.Clean(dataDir)), "db_storage") {
+		paths = append([]string{filepath.Join(filepath.Dir(filepath.Clean(dataDir)), "all_keys.json")}, paths...)
+	}
+
+	var raw []byte
+	var err error
+	for _, p := range paths {
+		raw, err = os.ReadFile(p)
+		if err == nil {
+			break
+		}
+	}
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("all_keys.json not found")
+	}
+
+	obj := map[string]allKeysEntry{}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(obj))
+	for k, v := range obj {
+		key := strings.ToLower(strings.TrimSpace(v.EncKey))
+		if len(key) != 64 {
+			continue
+		}
+		out[normalizeKeyPath(k)] = key
+	}
+	return out, nil
+}
+
+func relPathFromDataDir(dataDir, dbFile string) (string, bool) {
+	rel, err := filepath.Rel(dataDir, dbFile)
+	if err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(rel), true
+	}
+
+	dbDir := dataDir
+	if !strings.EqualFold(filepath.Base(filepath.Clean(dataDir)), "db_storage") {
+		dbDir = filepath.Join(dataDir, "db_storage")
+	}
+	rel, err = filepath.Rel(dbDir, dbFile)
+	if err == nil && !strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(rel), true
+	}
+	return "", false
+}
+
+func normalizeKeyPath(p string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.ReplaceAll(filepath.ToSlash(filepath.Clean(p)), "\\", "/")), "./")
 }
 
 func parseWalHeader(buf []byte) (binary.ByteOrder, uint32, uint32, uint32, error) {

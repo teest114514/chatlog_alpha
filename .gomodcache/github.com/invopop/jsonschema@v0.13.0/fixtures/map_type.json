@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/map-type",
+  "$ref": "#/$defs/MapType",
+  "$defs": {
+    "MapType": {
+      "type": "object"
+    }
+  }
+}

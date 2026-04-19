@@ -1,0 +1,5 @@
+./init_scan.go
+./v4.go
+_cgo_gotypes.go
+scanner_cgo_darwin.cgo1.go
+_cgo_import.go

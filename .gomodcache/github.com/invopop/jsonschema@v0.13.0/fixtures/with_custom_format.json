@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/with-custom-format",
+  "$ref": "#/$defs/WithCustomFormat",
+  "$defs": {
+    "WithCustomFormat": {
+      "properties": {
+        "dates": {
+          "items": {
+            "type": "string",
+            "format": "date"
+          },
+          "type": "array"
+        },
+        "odds": {
+          "items": {
+            "type": "string",
+            "format": "odd"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "dates",
+        "odds"
+      ]
+    }
+  }
+}

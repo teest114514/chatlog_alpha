@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/test-yaml-and-json",
+  "$ref": "#/$defs/TestYamlAndJson",
+  "$defs": {
+    "TestYamlAndJson": {
+      "properties": {
+        "first_name": {
+          "type": "string"
+        },
+        "LastName": {
+          "type": "string"
+        },
+        "age": {
+          "type": "integer"
+        },
+        "middle_name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "first_name",
+        "LastName",
+        "age"
+      ]
+    }
+  }
+}

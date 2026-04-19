@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/root-any-of",
+  "$ref": "#/$defs/RootAnyOf",
+  "$defs": {
+    "ChildAnyOf": {
+      "anyOf": [
+        {
+          "required": [
+            "child1",
+            "child4"
+          ],
+          "title": "group1"
+        },
+        {
+          "required": [
+            "child2",
+            "child3"
+          ],
+          "title": "group2"
+        }
+      ],
+      "properties": {
+        "child1": {
+          "type": "string"
+        },
+        "child2": {
+          "type": "string"
+        },
+        "child3": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "child4": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RootAnyOf": {
+      "anyOf": [
+        {
+          "required": [
+            "field1",
+            "field4"
+          ],
+          "title": "group1"
+        },
+        {
+          "required": [
+            "field2"
+          ],
+          "title": "group2"
+        }
+      ],
+      "properties": {
+        "field1": {
+          "type": "string"
+        },
+        "field2": {
+          "type": "string"
+        },
+        "field3": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "field4": {
+          "type": "string"
+        },
+        "child": {
+          "$ref": "#/$defs/ChildAnyOf"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  }
+}

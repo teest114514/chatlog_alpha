@@ -1,0 +1,13 @@
+./cgo.go
+./dlerror.go
+./dlfcn.go
+./dlfcn_darwin.go
+./func.go
+./go_runtime.go
+./struct_arm64.go
+./syscall.go
+./syscall_sysv.go
+./dlfcn_stubs.s
+./sys_arm64.s
+./sys_unix_arm64.s
+./zcallback_arm64.s
