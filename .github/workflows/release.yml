@@ -1,14 +1,6 @@
 name: Release
 
-on:
-  push:
-    tags:
-      - "v*"
-    branches:
-      - main
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
+on: [push]
 
 jobs:
   build-macos:
@@ -131,15 +123,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: publish/*
-
-      - name: Publish Latest Snapshot
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: "Latest Development Build"
-          body: "这是来自 main 分支的最新自动构建版本。仅供开发测试使用。"
-          prerelease: true
-          make_latest: false
           files: publish/*
