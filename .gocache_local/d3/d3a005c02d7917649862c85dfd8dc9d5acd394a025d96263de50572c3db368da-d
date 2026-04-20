@@ -1,5 +1,0 @@
-./process.go
-./process_bsd.go
-./process_darwin.go
-./process_darwin_arm64.go
-./process_posix.go

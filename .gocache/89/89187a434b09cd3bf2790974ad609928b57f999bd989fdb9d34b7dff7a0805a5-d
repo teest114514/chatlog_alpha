@@ -1,5 +1,0 @@
-./bytes.go
-./bytes_unsafe.go
-./escape.go
-./fuzz.go
-./parser.go

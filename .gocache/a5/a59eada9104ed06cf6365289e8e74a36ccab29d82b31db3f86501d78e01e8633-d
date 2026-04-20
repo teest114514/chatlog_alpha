@@ -1,5 +1,0 @@
-./rotate19.go
-./xxhash.go
-./xxhash_amd64.go
-./xxhash_unsafe.go
-./xxhash_amd64.s

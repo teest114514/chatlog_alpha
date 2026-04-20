@@ -1,6 +1,0 @@
-./context_pool.go
-./error_pool.go
-./pool.go
-./result_context_pool.go
-./result_error_pool.go
-./result_pool.go

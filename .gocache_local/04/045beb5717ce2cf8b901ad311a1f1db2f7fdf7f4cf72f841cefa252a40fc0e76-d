@@ -1,8 +1,0 @@
-./cmd_batch_decrypt.go
-./cmd_decrypt.go
-./cmd_key.go
-./cmd_mac_key_helper.go
-./cmd_server.go
-./cmd_version.go
-./log.go
-./root.go

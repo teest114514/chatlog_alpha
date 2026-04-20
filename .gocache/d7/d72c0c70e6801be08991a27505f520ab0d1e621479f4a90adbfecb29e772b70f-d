@@ -1,4 +1,0 @@
-./decode_hooks.go
-./errors.go
-./mapstructure.go
-./reflect_go1_20.go

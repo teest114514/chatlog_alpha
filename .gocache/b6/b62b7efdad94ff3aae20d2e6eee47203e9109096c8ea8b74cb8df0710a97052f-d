@@ -1,5 +1,0 @@
-./match.go
-./path.go
-./path_windows.go
-./symlink.go
-./symlink_windows.go

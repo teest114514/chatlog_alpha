@@ -1,9 +1,0 @@
-./callbacks.go
-./callbacks_traceback.go
-./handle.go
-./iscgo.go
-./setenv.go
-_cgo_gotypes.go
-cgo.cgo1.go
-_cgo_import.go
-./asm_arm64.s

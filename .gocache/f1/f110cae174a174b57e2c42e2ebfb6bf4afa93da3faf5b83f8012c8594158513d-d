@@ -1,9 +1,0 @@
-./currency.go
-./date.go
-./decimal.go
-./filetime.go
-./guid.go
-./numeric.go
-./strings.go
-./types.go
-./vectorArray.go

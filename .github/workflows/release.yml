@@ -34,8 +34,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
+          short_sha="${GITHUB_SHA::7}"
           for arch in amd64 arm64; do
-            archive="release/chatlog_${GITHUB_REF_NAME}_darwin_${arch}.zip"
+            archive="release/chatlog_${short_sha}_darwin_${arch}.zip"
             /usr/bin/zip -j "${archive}" "dist/chatlog-darwin-${arch}" LICENSE README.md
           done
 
@@ -96,8 +97,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path dist/chatlog-windows-amd64.exe,LICENSE,README.md -DestinationPath release/chatlog_${env:GITHUB_REF_NAME}_windows_amd64.zip -Force
-          Compress-Archive -Path dist/chatlog-windows-arm64.exe,LICENSE,README.md -DestinationPath release/chatlog_${env:GITHUB_REF_NAME}_windows_arm64.zip -Force
+          $shortSha = $env:GITHUB_SHA.Substring(0, 7)
+          Compress-Archive -Path dist/chatlog-windows-amd64.exe,LICENSE,README.md -DestinationPath "release/chatlog_${shortSha}_windows_amd64.zip" -Force
+          Compress-Archive -Path dist/chatlog-windows-arm64.exe,LICENSE,README.md -DestinationPath "release/chatlog_${shortSha}_windows_arm64.zip" -Force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v6
@@ -129,8 +131,12 @@ jobs:
           find release-assets -type f \( -name "*.zip" -o -name "*.exe" -o -name "chatlog-darwin-*" \) -exec cp {} publish/ \;
           ls -lah publish
 
-      - name: Publish Tagged Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish Latest Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: latest
+          name: "Latest Build"
+          body: "Auto build for `${{ github.sha }}` from `${{ github.ref_name }}`."
+          prerelease: true
+          make_latest: false
           files: publish/*

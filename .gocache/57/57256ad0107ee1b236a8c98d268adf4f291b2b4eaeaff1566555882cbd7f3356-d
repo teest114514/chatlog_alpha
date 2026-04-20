@@ -1,3 +1,0 @@
-./cpu.go
-./cpu_darwin.go
-./cpu_darwin_arm64.go

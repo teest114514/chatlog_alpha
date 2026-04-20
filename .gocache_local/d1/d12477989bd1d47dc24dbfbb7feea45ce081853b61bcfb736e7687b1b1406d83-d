@@ -1,3 +1,0 @@
-./net.go
-./net_darwin.go
-./net_unix.go

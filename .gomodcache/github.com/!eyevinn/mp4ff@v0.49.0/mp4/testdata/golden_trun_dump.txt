@@ -1,4 +1,0 @@
-[trun] size=36 version=1 flags=000f01
- - sampleCount: 1
- - DataOffset: 314159
- - sample[1]: dur=1024 size=4 flags=02000000 (isLeading=0 dependsOn=2 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=false degradationPriority=0) compositionTimeOffset=-512

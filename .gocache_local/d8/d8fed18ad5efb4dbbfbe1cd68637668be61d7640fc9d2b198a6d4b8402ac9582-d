@@ -1,7 +1,0 @@
-./errors.go
-./http_errors.go
-./mcp.go
-./middleware.go
-./os_errors.go
-./wechat_errors.go
-./wechatdb_errors.go

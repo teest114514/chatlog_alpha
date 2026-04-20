@@ -1,7 +1,0 @@
-./binary.go
-./common.go
-./common_testing.go
-./common_windows.go
-./endian.go
-./sleep.go
-./warnings.go
