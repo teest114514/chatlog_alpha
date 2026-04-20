@@ -2,16 +2,19 @@ name: Release
 
 on: [push]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-macos:
     name: Build macOS (amd64, arm64)
     runs-on: macos-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -37,7 +40,7 @@ jobs:
           done
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-macos
           path: |
@@ -49,10 +52,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
@@ -60,6 +63,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
+          path-type: inherit
           update: true
           install: >-
             mingw-w64-x86_64-gcc
@@ -69,7 +73,13 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
-          $env:CC = "C:\msys64\mingw64\bin\gcc.exe"
+          $gccCmd = Get-Command gcc -ErrorAction SilentlyContinue
+          if (-not $gccCmd) {
+            throw "gcc not found in PATH after setup-msys2"
+          }
+          Write-Host "Using gcc:" $gccCmd.Source
+
+          $env:CC = "gcc"
           $env:CGO_ENABLED = "1"
           $env:GOOS = "windows"
           $env:GOARCH = "amd64"
@@ -90,7 +100,7 @@ jobs:
           Compress-Archive -Path dist/chatlog-windows-arm64.exe,LICENSE,README.md -DestinationPath release/chatlog_${env:GITHUB_REF_NAME}_windows_arm64.zip -Force
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-windows
           path: |
@@ -107,7 +117,7 @@ jobs:
       contents: write
     steps:
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: release-assets
 
