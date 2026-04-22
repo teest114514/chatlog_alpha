@@ -1,0 +1,3 @@
+[subs] size=30 version=0 flags=000000
+ - sampleDelta: 100
+  > subSampleSize=1000 subSamplePriority=255 discardable=0 codecSpecificParameters=0

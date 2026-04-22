@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/key-named",
+  "$ref": "#/$defs/KeyNamed",
+  "$defs": {
+    "KeyNamed": {
+      "properties": {
+        "ThisWasLeftAsIs": {
+          "type": "string"
+        },
+        "coming_from_json_tag": {
+          "type": "boolean"
+        },
+        "nested_not_renamed": {
+          "$ref": "#/$defs/KeyNamedNested"
+        },
+        "✨unicode✨  s̸̥͝h̷̳͒e̴̜̽n̸̡̿a̷̘̔n̷̘͐i̶̫̐ǵ̶̯a̵̘͒n̷̮̾s̸̟̓": {
+          "type": "string"
+        },
+        "20.01": {
+          "type": "integer",
+          "description": "Description was preserved"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "ThisWasLeftAsIs",
+        "coming_from_json_tag",
+        "nested_not_renamed",
+        "✨unicode✨  s̸̥͝h̷̳͒e̴̜̽n̸̡̿a̷̘̔n̷̘͐i̶̫̐ǵ̶̯a̵̘͒n̷̮̾s̸̟̓",
+        "20.01"
+      ]
+    },
+    "KeyNamedNested": {
+      "properties": {
+        "nested-renamed-property": {
+          "type": "string"
+        },
+        "NotRenamed": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "nested-renamed-property",
+        "NotRenamed"
+      ]
+    }
+  }
+}

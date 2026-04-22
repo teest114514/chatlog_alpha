@@ -162,6 +162,10 @@ func (w *DB) ExecuteSQL(group, file, query string) ([]map[string]interface{}, er
 	return w.ds.ExecuteSQL(group, file, query)
 }
 
+func (w *DB) SearchAll(keyword string, limit int, deep bool) ([]map[string]interface{}, error) {
+	return w.ds.SearchAll(keyword, limit, deep)
+}
+
 // GetSNSTimeline 获取朋友圈时间线数据
 func (w *DB) GetSNSTimeline(username string, limit, offset int) ([]map[string]interface{}, error) {
 	return w.ds.GetSNSTimeline(context.Background(), username, limit, offset)

@@ -1,0 +1,7 @@
+./ascii.go
+./charmap.go
+./doc.go
+./ebcdic.go
+./latin1.go
+./latin5.go
+./utf8.go

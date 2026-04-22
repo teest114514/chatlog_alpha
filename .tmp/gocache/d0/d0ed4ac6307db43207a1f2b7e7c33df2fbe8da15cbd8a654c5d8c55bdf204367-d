@@ -1,0 +1,9 @@
+./annexb.go
+./doc.go
+./hevc.go
+./hevcdecoderconfigurationrecord.go
+./mime.go
+./pps.go
+./sei.go
+./slice.go
+./sps.go

@@ -12,7 +12,7 @@ import (
 var Debug = false
 
 const (
-	WeChatV4       = "wechatv4"
+	WeChatV4 = "wechatv4"
 )
 
 const (

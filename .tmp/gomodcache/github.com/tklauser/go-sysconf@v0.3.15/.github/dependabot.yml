@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: "go.mod:"
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+    commit-message:
+      prefix: ".github:"
+    open-pull-requests-limit: 1
+    rebase-strategy: disabled

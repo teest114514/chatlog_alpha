@@ -73,9 +73,10 @@ func (c *ServerConfig) GetHTTPAddr() string {
 func (c *ServerConfig) GetMessageHook() *MessageHook {
 	if c.MessageHook == nil {
 		c.MessageHook = &MessageHook{
-			NotifyMode:  HookNotifyMCP,
-			BeforeCount: 5,
-			AfterCount:  5,
+			NotifyMode:     HookNotifyMCP,
+			BeforeCount:    5,
+			AfterCount:     5,
+			WeixinInterval: 5,
 		}
 	}
 	return c.MessageHook
@@ -92,13 +93,7 @@ func (c *ServerConfig) SetHookKeywords(keywords string) {
 
 func (c *ServerConfig) SetHookNotifyMode(mode string) {
 	cfg := c.GetMessageHook()
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	switch mode {
-	case HookNotifyMCP, HookNotifyPost, HookNotifyBoth:
-		cfg.NotifyMode = mode
-	default:
-		cfg.NotifyMode = HookNotifyMCP
-	}
+	cfg.NotifyMode = CanonicalHookNotifyMode(mode)
 }
 
 func (c *ServerConfig) SetHookPostURL(url string) {
@@ -107,17 +102,40 @@ func (c *ServerConfig) SetHookPostURL(url string) {
 }
 
 func (c *ServerConfig) SetHookBeforeCount(n int) {
-	if n <= 0 {
-		n = 5
+	if n < 0 {
+		n = 0
 	}
 	cfg := c.GetMessageHook()
 	cfg.BeforeCount = n
 }
 
 func (c *ServerConfig) SetHookAfterCount(n int) {
+	if n < 0 {
+		n = 0
+	}
+	cfg := c.GetMessageHook()
+	cfg.AfterCount = n
+}
+
+func (c *ServerConfig) SetHookWeixinInterval(n int) {
 	if n <= 0 {
 		n = 5
 	}
 	cfg := c.GetMessageHook()
-	cfg.AfterCount = n
+	cfg.WeixinInterval = n
+}
+
+func (c *ServerConfig) SetHookForwardAll(enabled bool) {
+	cfg := c.GetMessageHook()
+	cfg.ForwardAll = enabled
+}
+
+func (c *ServerConfig) SetHookForwardContacts(raw string) {
+	cfg := c.GetMessageHook()
+	cfg.ForwardContacts = strings.TrimSpace(raw)
+}
+
+func (c *ServerConfig) SetHookForwardChatRooms(raw string) {
+	cfg := c.GetMessageHook()
+	cfg.ForwardChatRooms = strings.TrimSpace(raw)
 }

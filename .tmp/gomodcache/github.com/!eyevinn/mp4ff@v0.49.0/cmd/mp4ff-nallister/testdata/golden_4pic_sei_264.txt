@@ -1,0 +1,13 @@
+Sample 1, pts=0 (6667B): AUD_9 (2B), SPS_7 (36B), PPS_8 (4B), SEI_6 (30B), IDR_5 [I] (6575B)
+  SEI raw: 06000780576900002240010f00012c00000300090c05a27a000003004080
+  * SEIBufferingPeriodType (0), size=7, "80576900002240"
+  * SEIPicTimingType (1), size=15, time=20:39:40:05 offset=0
+Sample 2, pts=0 (6667B): AUD_9 (2B), PPS_8 (4B), SEI_6 (22B), NonIDR_1 [P] (6623B)
+  SEI raw: 06010f0000030200000300090c06a27a000003004080
+  * SEIPicTimingType (1), size=15, time=20:39:40:06 offset=0
+Sample 3, pts=0 (6667B): AUD_9 (2B), PPS_8 (4B), SEI_6 (21B), NonIDR_1 [P] (6624B)
+  SEI raw: 06010f00000400000300090c07a27a000003004080
+  * SEIPicTimingType (1), size=15, time=20:39:40:07 offset=0
+Sample 4, pts=0 (6671B): AUD_9 (2B), PPS_8 (4B), SEI_6 (21B), NonIDR_1 [P] (6628B)
+  SEI raw: 06010f00000600000300090c08a27a000003004080
+  * SEIPicTimingType (1), size=15, time=20:39:40:08 offset=0

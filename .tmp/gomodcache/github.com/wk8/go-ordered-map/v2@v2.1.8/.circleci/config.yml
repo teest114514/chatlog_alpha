@@ -1,0 +1,23 @@
+version: 2.1
+
+jobs:
+  test:
+    parameters:
+      golang-version:
+        type: string
+    docker:
+      - image: cimg/go:<< parameters.golang-version >>
+    steps:
+      - checkout
+      - run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.45.2
+      - run: .circleci/circle_build.sh
+
+workflows:
+  test-workflow:
+    jobs:
+      - test:
+          matrix:
+            parameters:
+              golang-version:
+                - '1.18'
+                - '1.19'

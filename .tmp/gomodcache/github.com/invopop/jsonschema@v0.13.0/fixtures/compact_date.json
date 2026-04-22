@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/compact-date",
+  "$ref": "#/$defs/CompactDate",
+  "$defs": {
+    "CompactDate": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-1][0-9]$",
+      "title": "Compact Date",
+      "description": "Short date that only includes year and month"
+    }
+  }
+}

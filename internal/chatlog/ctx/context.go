@@ -49,15 +49,19 @@ type Context struct {
 	HTTPAddr    string
 
 	// 自动解密
-	AutoDecrypt         bool
-	LastSession         time.Time
-	WalEnabled          bool
-	AutoDecryptDebounce int
-	HookKeywords        string
-	HookNotifyMode      string
-	HookPostURL         string
-	HookBeforeCount     int
-	HookAfterCount      int
+	AutoDecrypt          bool
+	LastSession          time.Time
+	WalEnabled           bool
+	AutoDecryptDebounce  int
+	HookKeywords         string
+	HookNotifyMode       string
+	HookPostURL          string
+	HookBeforeCount      int
+	HookAfterCount       int
+	HookWeixinInterval   int
+	HookForwardAll       bool
+	HookForwardContacts  string
+	HookForwardChatRooms string
 
 	// 当前选中的微信实例
 	Current *wechat.Account
@@ -118,6 +122,13 @@ func (c *Context) SwitchHistory(account string) {
 		c.HookPostURL = history.HookPostURL
 		c.HookBeforeCount = history.HookBeforeCount
 		c.HookAfterCount = history.HookAfterCount
+		c.HookWeixinInterval = history.HookWeixinInterval
+		if c.HookWeixinInterval <= 0 {
+			c.HookWeixinInterval = 5
+		}
+		c.HookForwardAll = history.HookForwardAll
+		c.HookForwardContacts = history.HookForwardContacts
+		c.HookForwardChatRooms = history.HookForwardChatRooms
 	} else {
 		c.Account = ""
 		c.Platform = ""
@@ -136,6 +147,10 @@ func (c *Context) SwitchHistory(account string) {
 		c.HookPostURL = ""
 		c.HookBeforeCount = 5
 		c.HookAfterCount = 5
+		c.HookWeixinInterval = 5
+		c.HookForwardAll = false
+		c.HookForwardContacts = ""
+		c.HookForwardChatRooms = ""
 	}
 }
 
@@ -224,26 +239,29 @@ func (c *Context) GetHTTPAddr() string {
 }
 
 func (c *Context) GetMessageHook() *conf.MessageHook {
-	mode := strings.ToLower(strings.TrimSpace(c.HookNotifyMode))
-	switch mode {
-	case conf.HookNotifyMCP, conf.HookNotifyPost, conf.HookNotifyBoth:
-	default:
-		mode = conf.HookNotifyMCP
-	}
+	mode := conf.CanonicalHookNotifyMode(c.HookNotifyMode)
 	before := c.HookBeforeCount
 	after := c.HookAfterCount
-	if before <= 0 {
-		before = 5
+	if before < 0 {
+		before = 0
 	}
-	if after <= 0 {
-		after = 5
+	if after < 0 {
+		after = 0
+	}
+	weixinInterval := c.HookWeixinInterval
+	if weixinInterval <= 0 {
+		weixinInterval = 5
 	}
 	return &conf.MessageHook{
-		Keywords:    c.HookKeywords,
-		NotifyMode:  mode,
-		PostURL:     c.HookPostURL,
-		BeforeCount: before,
-		AfterCount:  after,
+		Keywords:         c.HookKeywords,
+		NotifyMode:       mode,
+		PostURL:          c.HookPostURL,
+		BeforeCount:      before,
+		AfterCount:       after,
+		WeixinInterval:   weixinInterval,
+		ForwardAll:       c.HookForwardAll,
+		ForwardContacts:  c.HookForwardContacts,
+		ForwardChatRooms: c.HookForwardChatRooms,
 	}
 }
 
@@ -345,12 +363,7 @@ func (c *Context) SetHookKeywords(keywords string) {
 }
 
 func (c *Context) SetHookNotifyMode(mode string) {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	switch mode {
-	case conf.HookNotifyMCP, conf.HookNotifyPost, conf.HookNotifyBoth:
-	default:
-		mode = conf.HookNotifyMCP
-	}
+	mode = conf.CanonicalHookNotifyMode(mode)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.HookNotifyMode == mode {
@@ -371,8 +384,8 @@ func (c *Context) SetHookPostURL(url string) {
 }
 
 func (c *Context) SetHookBeforeCount(n int) {
-	if n <= 0 {
-		n = 5
+	if n < 0 {
+		n = 0
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -384,8 +397,8 @@ func (c *Context) SetHookBeforeCount(n int) {
 }
 
 func (c *Context) SetHookAfterCount(n int) {
-	if n <= 0 {
-		n = 5
+	if n < 0 {
+		n = 0
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -396,28 +409,77 @@ func (c *Context) SetHookAfterCount(n int) {
 	c.UpdateConfig()
 }
 
+func (c *Context) SetHookWeixinInterval(n int) {
+	if n <= 0 {
+		n = 5
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.HookWeixinInterval == n {
+		return
+	}
+	c.HookWeixinInterval = n
+	c.UpdateConfig()
+}
+
+func (c *Context) SetHookForwardAll(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.HookForwardAll == enabled {
+		return
+	}
+	c.HookForwardAll = enabled
+	c.UpdateConfig()
+}
+
+func (c *Context) SetHookForwardContacts(raw string) {
+	raw = strings.TrimSpace(raw)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.HookForwardContacts == raw {
+		return
+	}
+	c.HookForwardContacts = raw
+	c.UpdateConfig()
+}
+
+func (c *Context) SetHookForwardChatRooms(raw string) {
+	raw = strings.TrimSpace(raw)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.HookForwardChatRooms == raw {
+		return
+	}
+	c.HookForwardChatRooms = raw
+	c.UpdateConfig()
+}
+
 // 更新配置
 func (c *Context) UpdateConfig() {
 
 	pconf := conf.ProcessConfig{
-		Type:                "wechat",
-		Account:             c.Account,
-		Platform:            c.Platform,
-		Version:             c.Version,
-		FullVersion:         c.FullVersion,
-		DataDir:             c.DataDir,
-		DataKey:             c.DataKey,
-		ImgKey:              c.ImgKey,
-		WorkDir:             c.WorkDir,
-		HTTPEnabled:         c.HTTPEnabled,
-		HTTPAddr:            c.HTTPAddr,
-		WalEnabled:          c.WalEnabled,
-		AutoDecryptDebounce: c.AutoDecryptDebounce,
-		HookKeywords:        c.HookKeywords,
-		HookNotifyMode:      c.HookNotifyMode,
-		HookPostURL:         c.HookPostURL,
-		HookBeforeCount:     c.HookBeforeCount,
-		HookAfterCount:      c.HookAfterCount,
+		Type:                 "wechat",
+		Account:              c.Account,
+		Platform:             c.Platform,
+		Version:              c.Version,
+		FullVersion:          c.FullVersion,
+		DataDir:              c.DataDir,
+		DataKey:              c.DataKey,
+		ImgKey:               c.ImgKey,
+		WorkDir:              c.WorkDir,
+		HTTPEnabled:          c.HTTPEnabled,
+		HTTPAddr:             c.HTTPAddr,
+		WalEnabled:           c.WalEnabled,
+		AutoDecryptDebounce:  c.AutoDecryptDebounce,
+		HookKeywords:         c.HookKeywords,
+		HookNotifyMode:       c.HookNotifyMode,
+		HookPostURL:          c.HookPostURL,
+		HookBeforeCount:      c.HookBeforeCount,
+		HookAfterCount:       c.HookAfterCount,
+		HookWeixinInterval:   c.HookWeixinInterval,
+		HookForwardAll:       c.HookForwardAll,
+		HookForwardContacts:  c.HookForwardContacts,
+		HookForwardChatRooms: c.HookForwardChatRooms,
 	}
 
 	if c.conf.History == nil {

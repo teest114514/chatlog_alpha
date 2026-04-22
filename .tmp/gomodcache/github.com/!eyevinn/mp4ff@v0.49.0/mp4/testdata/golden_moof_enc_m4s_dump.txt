@@ -1,0 +1,436 @@
+[styp] size=24
+ - majorBrand: msdh
+ - minorVersion: 0
+ - compatibleBrand: msdh
+ - compatibleBrand: msix
+[sidx] size=44 version=0 flags=000000
+ - referenceID: 1
+ - timeScale: 24
+ - earliestPresentationTime: 0
+ - firstOffset: 0
+ - reference[1]: type=0 size=93848 subSegmentDuration=96 startsWithSAP=1 SAPType=1 SAPDeltaTime=0
+[moof] size=3023
+  [mfhd] size=16 version=0 flags=000000
+   - sequenceNumber: 1
+  [traf] size=2999
+    [tfhd] size=20 version=0 flags=020008
+     - trackID: 1
+     - defaultBaseIsMoof: true
+     - defaultSampleDuration: 1
+    [tfdt] size=16 version=0 flags=000000
+     - baseMediaDecodeTime: 0
+    [sgpd] size=44 version=1 flags=000000
+       groupingType: seig
+     - defaultLength: 20
+     - entryCount: 1
+     - GroupingType "seig" size=20
+     -  * cryptByteBlock: 0
+     -  * skipByteBlock: 0
+     -  * isProtected: 1
+     -  * perSampleIVSize: 8
+     -  * KID: 914e69f4-0ab3-4534-9e9f-9853615e26f6
+    [sbgp] size=28 version=0 flags=000000
+     - groupingType: seig
+     - entryCount: 1
+     - entry[1] sampleCount=96 groupDescriptionIndex=65537 (index 1 inside fragment)
+    [saiz] size=121 version=0 flags=000001
+     - auxInfoType: cenc
+     - auxInfoTypeParameter: 0
+     - defaultSampleInfoSize: 0
+     - sampleCount: 96
+     - sampleInfo[1]=22
+     - sampleInfo[2]=16
+     - sampleInfo[3]=16
+     - sampleInfo[4]=16
+     - sampleInfo[5]=16
+     - sampleInfo[6]=16
+     - sampleInfo[7]=16
+     - sampleInfo[8]=16
+     - sampleInfo[9]=16
+     - sampleInfo[10]=16
+     - sampleInfo[11]=16
+     - sampleInfo[12]=16
+     - sampleInfo[13]=16
+     - sampleInfo[14]=16
+     - sampleInfo[15]=16
+     - sampleInfo[16]=16
+     - sampleInfo[17]=16
+     - sampleInfo[18]=16
+     - sampleInfo[19]=16
+     - sampleInfo[20]=16
+     - sampleInfo[21]=16
+     - sampleInfo[22]=16
+     - sampleInfo[23]=16
+     - sampleInfo[24]=16
+     - sampleInfo[25]=16
+     - sampleInfo[26]=16
+     - sampleInfo[27]=16
+     - sampleInfo[28]=16
+     - sampleInfo[29]=16
+     - sampleInfo[30]=16
+     - sampleInfo[31]=16
+     - sampleInfo[32]=16
+     - sampleInfo[33]=16
+     - sampleInfo[34]=16
+     - sampleInfo[35]=16
+     - sampleInfo[36]=16
+     - sampleInfo[37]=16
+     - sampleInfo[38]=16
+     - sampleInfo[39]=16
+     - sampleInfo[40]=16
+     - sampleInfo[41]=16
+     - sampleInfo[42]=16
+     - sampleInfo[43]=16
+     - sampleInfo[44]=16
+     - sampleInfo[45]=16
+     - sampleInfo[46]=16
+     - sampleInfo[47]=16
+     - sampleInfo[48]=16
+     - sampleInfo[49]=16
+     - sampleInfo[50]=16
+     - sampleInfo[51]=16
+     - sampleInfo[52]=16
+     - sampleInfo[53]=16
+     - sampleInfo[54]=16
+     - sampleInfo[55]=16
+     - sampleInfo[56]=16
+     - sampleInfo[57]=16
+     - sampleInfo[58]=16
+     - sampleInfo[59]=16
+     - sampleInfo[60]=16
+     - sampleInfo[61]=16
+     - sampleInfo[62]=16
+     - sampleInfo[63]=16
+     - sampleInfo[64]=16
+     - sampleInfo[65]=16
+     - sampleInfo[66]=16
+     - sampleInfo[67]=16
+     - sampleInfo[68]=16
+     - sampleInfo[69]=16
+     - sampleInfo[70]=16
+     - sampleInfo[71]=16
+     - sampleInfo[72]=16
+     - sampleInfo[73]=16
+     - sampleInfo[74]=16
+     - sampleInfo[75]=16
+     - sampleInfo[76]=16
+     - sampleInfo[77]=16
+     - sampleInfo[78]=16
+     - sampleInfo[79]=16
+     - sampleInfo[80]=16
+     - sampleInfo[81]=16
+     - sampleInfo[82]=16
+     - sampleInfo[83]=16
+     - sampleInfo[84]=16
+     - sampleInfo[85]=16
+     - sampleInfo[86]=16
+     - sampleInfo[87]=16
+     - sampleInfo[88]=16
+     - sampleInfo[89]=16
+     - sampleInfo[90]=16
+     - sampleInfo[91]=16
+     - sampleInfo[92]=16
+     - sampleInfo[93]=16
+     - sampleInfo[94]=16
+     - sampleInfo[95]=16
+     - sampleInfo[96]=16
+    [saio] size=32 version=1 flags=000001
+     - auxInfoType: cenc
+     - auxInfoTypeParameter: 0
+     - sampleCount: 1
+     - offset[1]=1481
+    [trun] size=1172 version=0 flags=000e01
+     - sampleCount: 96
+     - DataOffset: 3031
+     - sample[1]: size=16279 flags=02000000 (isLeading=0 dependsOn=2 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=false degradationPriority=0) compositionTimeOffset=2
+     - sample[2]: size=418 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[3]: size=382 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[4]: size=316 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[5]: size=390 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[6]: size=355 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[7]: size=266 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[8]: size=1659 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=6
+     - sample[9]: size=450 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=2
+     - sample[10]: size=298 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[11]: size=247 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[12]: size=260 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[13]: size=573 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=8
+     - sample[14]: size=321 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[15]: size=112 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[16]: size=227 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[17]: size=217 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[18]: size=362 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[19]: size=171 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[20]: size=2557 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=6
+     - sample[21]: size=265 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=2
+     - sample[22]: size=363 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[23]: size=173 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[24]: size=253 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[25]: size=2665 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=8
+     - sample[26]: size=450 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[27]: size=159 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[28]: size=483 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[29]: size=483 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[30]: size=505 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[31]: size=241 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[32]: size=509 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[33]: size=339 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[34]: size=7226 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[35]: size=354 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[36]: size=283 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[37]: size=297 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[38]: size=98 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[39]: size=463 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[40]: size=431 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[41]: size=214 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[42]: size=554 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[43]: size=466 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[44]: size=69 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[45]: size=307 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[46]: size=256 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=4
+     - sample[47]: size=307 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[48]: size=167 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[49]: size=27185 flags=02000000 (isLeading=0 dependsOn=2 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=false degradationPriority=0) compositionTimeOffset=2
+     - sample[50]: size=1003 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[51]: size=544 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[52]: size=521 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[53]: size=416 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[54]: size=531 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[55]: size=570 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[56]: size=316 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[57]: size=358 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[58]: size=460 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[59]: size=474 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[60]: size=420 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[61]: size=337 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[62]: size=64 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[63]: size=362 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[64]: size=1096 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[65]: size=327 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[66]: size=294 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[67]: size=497 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[68]: size=81 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[69]: size=440 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[70]: size=904 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[71]: size=620 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[72]: size=414 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[73]: size=387 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[74]: size=68 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[75]: size=396 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[76]: size=456 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[77]: size=282 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[78]: size=422 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[79]: size=523 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[80]: size=96 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[81]: size=422 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[82]: size=455 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[83]: size=217 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[84]: size=336 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[85]: size=369 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[86]: size=73 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[87]: size=420 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[88]: size=415 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=7
+     - sample[89]: size=211 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=3
+     - sample[90]: size=491 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[91]: size=601 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=0
+     - sample[92]: size=260 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[93]: size=416 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[94]: size=280 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=4
+     - sample[95]: size=369 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+     - sample[96]: size=378 flags=00010000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=true degradationPriority=0) compositionTimeOffset=1
+    [senc] size=1558 version=0 flags=000002
+     - sampleCount: 96
+     - perSampleIVSize: 8
+     - sample[1]: iv=89d2843aeaa409b6
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=758
+       - subSample[2]: nrBytesClear=5 nrBytesProtected=15511
+     - sample[2]: iv=89d2843aeaa409b7
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=413
+     - sample[3]: iv=89d2843aeaa409b8
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=377
+     - sample[4]: iv=89d2843aeaa409b9
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=311
+     - sample[5]: iv=89d2843aeaa409ba
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=385
+     - sample[6]: iv=89d2843aeaa409bb
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=350
+     - sample[7]: iv=89d2843aeaa409bc
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=261
+     - sample[8]: iv=89d2843aeaa409bd
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=1654
+     - sample[9]: iv=89d2843aeaa409be
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=445
+     - sample[10]: iv=89d2843aeaa409bf
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=293
+     - sample[11]: iv=89d2843aeaa409c0
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=242
+     - sample[12]: iv=89d2843aeaa409c1
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=255
+     - sample[13]: iv=89d2843aeaa409c2
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=568
+     - sample[14]: iv=89d2843aeaa409c3
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=316
+     - sample[15]: iv=89d2843aeaa409c4
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=107
+     - sample[16]: iv=89d2843aeaa409c5
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=222
+     - sample[17]: iv=89d2843aeaa409c6
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=212
+     - sample[18]: iv=89d2843aeaa409c7
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=357
+     - sample[19]: iv=89d2843aeaa409c8
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=166
+     - sample[20]: iv=89d2843aeaa409c9
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=2552
+     - sample[21]: iv=89d2843aeaa409ca
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=260
+     - sample[22]: iv=89d2843aeaa409cb
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=358
+     - sample[23]: iv=89d2843aeaa409cc
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=168
+     - sample[24]: iv=89d2843aeaa409cd
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=248
+     - sample[25]: iv=89d2843aeaa409ce
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=2660
+     - sample[26]: iv=89d2843aeaa409cf
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=445
+     - sample[27]: iv=89d2843aeaa409d0
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=154
+     - sample[28]: iv=89d2843aeaa409d1
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=478
+     - sample[29]: iv=89d2843aeaa409d2
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=478
+     - sample[30]: iv=89d2843aeaa409d3
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=500
+     - sample[31]: iv=89d2843aeaa409d4
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=236
+     - sample[32]: iv=89d2843aeaa409d5
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=504
+     - sample[33]: iv=89d2843aeaa409d6
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=334
+     - sample[34]: iv=89d2843aeaa409d7
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=7221
+     - sample[35]: iv=89d2843aeaa409d8
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=349
+     - sample[36]: iv=89d2843aeaa409d9
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=278
+     - sample[37]: iv=89d2843aeaa409da
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=292
+     - sample[38]: iv=89d2843aeaa409db
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=93
+     - sample[39]: iv=89d2843aeaa409dc
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=458
+     - sample[40]: iv=89d2843aeaa409dd
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=426
+     - sample[41]: iv=89d2843aeaa409de
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=209
+     - sample[42]: iv=89d2843aeaa409df
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=549
+     - sample[43]: iv=89d2843aeaa409e0
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=461
+     - sample[44]: iv=89d2843aeaa409e1
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=64
+     - sample[45]: iv=89d2843aeaa409e2
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=302
+     - sample[46]: iv=89d2843aeaa409e3
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=251
+     - sample[47]: iv=89d2843aeaa409e4
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=302
+     - sample[48]: iv=89d2843aeaa409e5
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=162
+     - sample[49]: iv=89d2843aeaa409e6
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=27180
+     - sample[50]: iv=89d2843aeaa409e7
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=998
+     - sample[51]: iv=89d2843aeaa409e8
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=539
+     - sample[52]: iv=89d2843aeaa409e9
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=516
+     - sample[53]: iv=89d2843aeaa409ea
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=411
+     - sample[54]: iv=89d2843aeaa409eb
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=526
+     - sample[55]: iv=89d2843aeaa409ec
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=565
+     - sample[56]: iv=89d2843aeaa409ed
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=311
+     - sample[57]: iv=89d2843aeaa409ee
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=353
+     - sample[58]: iv=89d2843aeaa409ef
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=455
+     - sample[59]: iv=89d2843aeaa409f0
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=469
+     - sample[60]: iv=89d2843aeaa409f1
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=415
+     - sample[61]: iv=89d2843aeaa409f2
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=332
+     - sample[62]: iv=89d2843aeaa409f3
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=59
+     - sample[63]: iv=89d2843aeaa409f4
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=357
+     - sample[64]: iv=89d2843aeaa409f5
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=1091
+     - sample[65]: iv=89d2843aeaa409f6
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=322
+     - sample[66]: iv=89d2843aeaa409f7
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=289
+     - sample[67]: iv=89d2843aeaa409f8
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=492
+     - sample[68]: iv=89d2843aeaa409f9
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=76
+     - sample[69]: iv=89d2843aeaa409fa
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=435
+     - sample[70]: iv=89d2843aeaa409fb
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=899
+     - sample[71]: iv=89d2843aeaa409fc
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=615
+     - sample[72]: iv=89d2843aeaa409fd
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=409
+     - sample[73]: iv=89d2843aeaa409fe
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=382
+     - sample[74]: iv=89d2843aeaa409ff
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=63
+     - sample[75]: iv=89d2843aeaa40a00
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=391
+     - sample[76]: iv=89d2843aeaa40a01
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=451
+     - sample[77]: iv=89d2843aeaa40a02
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=277
+     - sample[78]: iv=89d2843aeaa40a03
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=417
+     - sample[79]: iv=89d2843aeaa40a04
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=518
+     - sample[80]: iv=89d2843aeaa40a05
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=91
+     - sample[81]: iv=89d2843aeaa40a06
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=417
+     - sample[82]: iv=89d2843aeaa40a07
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=450
+     - sample[83]: iv=89d2843aeaa40a08
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=212
+     - sample[84]: iv=89d2843aeaa40a09
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=331
+     - sample[85]: iv=89d2843aeaa40a0a
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=364
+     - sample[86]: iv=89d2843aeaa40a0b
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=68
+     - sample[87]: iv=89d2843aeaa40a0c
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=415
+     - sample[88]: iv=89d2843aeaa40a0d
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=410
+     - sample[89]: iv=89d2843aeaa40a0e
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=206
+     - sample[90]: iv=89d2843aeaa40a0f
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=486
+     - sample[91]: iv=89d2843aeaa40a10
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=596
+     - sample[92]: iv=89d2843aeaa40a11
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=255
+     - sample[93]: iv=89d2843aeaa40a12
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=411
+     - sample[94]: iv=89d2843aeaa40a13
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=275
+     - sample[95]: iv=89d2843aeaa40a14
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=364
+     - sample[96]: iv=89d2843aeaa40a15
+       - subSample[1]: nrBytesClear=5 nrBytesProtected=373

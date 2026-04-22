@@ -12,37 +12,50 @@ import (
 
 // SNSPost 朋友圈帖子
 type SNSPost struct {
-	TID         int64     `json:"tid"`
-	UserName    string    `json:"user_name"`
-	NickName    string    `json:"nickname"`
-	CreateTime  int64     `json:"create_time"`
-	CreateTimeStr string  `json:"create_time_str"`
-	ContentDesc string    `json:"content_desc"`
-	ContentType string    `json:"content_type"` // image, video, article, finder, text
-	Location    *SNSLocation `json:"location,omitempty"`
-	MediaList   []SNSMedia `json:"media_list,omitempty"`
-	Article     *SNSArticle `json:"article,omitempty"`
-	FinderFeed  *SNSFinderFeed `json:"finder_feed,omitempty"`
-	XMLContent  string    `json:"xml_content,omitempty"` // 原始XML，用于调试
+	TID           int64          `json:"tid"`
+	UserName      string         `json:"user_name"`
+	NickName      string         `json:"nickname"`
+	CreateTime    int64          `json:"create_time"`
+	CreateTimeStr string         `json:"create_time_str"`
+	ContentDesc   string         `json:"content_desc"`
+	ContentType   string         `json:"content_type"` // image, video, article, finder, text
+	Location      *SNSLocation   `json:"location,omitempty"`
+	MediaList     []SNSMedia     `json:"media_list,omitempty"`
+	Article       *SNSArticle    `json:"article,omitempty"`
+	FinderFeed    *SNSFinderFeed `json:"finder_feed,omitempty"`
+	XMLContent    string         `json:"xml_content,omitempty"` // 原始XML，用于调试
 }
 
 // SNSLocation 位置信息
 type SNSLocation struct {
-	City        string  `json:"city,omitempty"`
-	Latitude    float64 `json:"latitude,omitempty"`
-	Longitude   float64 `json:"longitude,omitempty"`
-	POIName     string  `json:"poi_name,omitempty"`
-	POIAddress  string  `json:"poi_address,omitempty"`
+	City       string  `json:"city,omitempty"`
+	Latitude   float64 `json:"latitude,omitempty"`
+	Longitude  float64 `json:"longitude,omitempty"`
+	POIName    string  `json:"poi_name,omitempty"`
+	POIAddress string  `json:"poi_address,omitempty"`
 }
 
 // SNSMedia 媒体信息
 type SNSMedia struct {
-	Type     string `json:"type"`     // image, video
+	Type      string            `json:"type"` // image, video
+	URL       string            `json:"url,omitempty"`
+	ThumbURL  string            `json:"thumb_url,omitempty"`
+	Token     string            `json:"token,omitempty"`
+	Key       string            `json:"key,omitempty"`
+	MD5       string            `json:"md5,omitempty"`
+	EncIdx    string            `json:"enc_idx,omitempty"`
+	Width     int               `json:"width,omitempty"`
+	Height    int               `json:"height,omitempty"`
+	Duration  string            `json:"duration,omitempty"`
+	LivePhoto *SNSMediaResource `json:"live_photo,omitempty"`
+}
+
+type SNSMediaResource struct {
 	URL      string `json:"url,omitempty"`
 	ThumbURL string `json:"thumb_url,omitempty"`
-	Width    int    `json:"width,omitempty"`
-	Height   int    `json:"height,omitempty"`
-	Duration string `json:"duration,omitempty"`
+	Token    string `json:"token,omitempty"`
+	Key      string `json:"key,omitempty"`
+	EncIdx   string `json:"enc_idx,omitempty"`
 }
 
 // SNSArticle 文章信息
@@ -55,16 +68,16 @@ type SNSArticle struct {
 
 // SNSFinderFeed 视频号信息
 type SNSFinderFeed struct {
-	Nickname     string `json:"nickname"`
-	Avatar       string `json:"avatar"`
-	Desc         string `json:"desc"`
-	MediaCount   int    `json:"media_count"`
-	VideoURL     string `json:"video_url"`
-	CoverURL     string `json:"cover_url"`
-	ThumbURL     string `json:"thumb_url"`
-	Width        int    `json:"width,omitempty"`
-	Height       int    `json:"height,omitempty"`
-	Duration     string `json:"duration,omitempty"`
+	Nickname   string `json:"nickname"`
+	Avatar     string `json:"avatar"`
+	Desc       string `json:"desc"`
+	MediaCount int    `json:"media_count"`
+	VideoURL   string `json:"video_url"`
+	CoverURL   string `json:"cover_url"`
+	ThumbURL   string `json:"thumb_url"`
+	Width      int    `json:"width,omitempty"`
+	Height     int    `json:"height,omitempty"`
+	Duration   string `json:"duration,omitempty"`
 }
 
 // ParseSNSContent 解析朋友圈 XML 内容
@@ -106,6 +119,8 @@ func ParseSNSContent(xmlContent string) (*SNSPost, error) {
 	case "finder":
 		post.FinderFeed = parseSNSFinderFeed(xmlContent)
 	}
+
+	applySNSVideoKey(post.MediaList, extractSNSVideoKey(xmlContent))
 
 	return post, nil
 }
@@ -197,81 +212,153 @@ func xmlContentLocation(xml string) string {
 
 // parseSNSImageMedia 解析图片媒体
 func parseSNSImageMedia(xml string) []SNSMedia {
-	var mediaList []SNSMedia
+	return parseSNSMedia(xml, "image")
+}
 
-	// 查找所有 media 标签
-	re := regexp.MustCompile(`<media>(.*?)</media>`)
+// parseSNSVideoMedia 解析视频媒体
+func parseSNSVideoMedia(xml string) []SNSMedia {
+	return parseSNSMedia(xml, "video")
+}
+
+func parseSNSMedia(xml string, mediaType string) []SNSMedia {
+	re := regexp.MustCompile(`<media>([\s\S]*?)</media>`)
 	matches := re.FindAllStringSubmatch(xml, -1)
+	mediaList := make([]SNSMedia, 0, len(matches))
 
 	for _, match := range matches {
-		if len(match) > 1 {
-			media := SNSMedia{Type: "image"}
-			mediaXML := match[1]
-
-			// 提取 URL
-			urlTag := extractXMLTag(mediaXML, "url")
-			if urlTag == "" {
-				urlTag = extractXMLTag(mediaXML, "thumb")
-			}
-			media.URL = html.UnescapeString(urlTag)
-
-			// 提取尺寸
-			width := extractXMLTagAttr(mediaXML, "size", "width")
-			height := extractXMLTagAttr(mediaXML, "size", "height")
-			if width != "" {
-				media.Width, _ = strconv.Atoi(width)
-			}
-			if height != "" {
-				media.Height, _ = strconv.Atoi(height)
-			}
-
-			mediaList = append(mediaList, media)
+		if len(match) <= 1 {
+			continue
 		}
+		mediaXML := match[1]
+		urlTagMatch := regexp.MustCompile(`<url([^>]*)>`).FindStringSubmatch(mediaXML)
+		thumbTagMatch := regexp.MustCompile(`<thumb([^>]*)>`).FindStringSubmatch(mediaXML)
+
+		item := SNSMedia{
+			Type:     mediaType,
+			URL:      html.UnescapeString(extractXMLTag(mediaXML, "url")),
+			ThumbURL: html.UnescapeString(extractXMLTag(mediaXML, "thumb")),
+		}
+		if item.URL == "" && mediaType == "image" {
+			item.URL = item.ThumbURL
+		}
+		if len(urlTagMatch) > 1 {
+			item.Token = extractXMLAttr(urlTagMatch[1], "token")
+			item.Key = extractXMLAttr(urlTagMatch[1], "key")
+			item.MD5 = extractXMLAttr(urlTagMatch[1], "md5")
+			item.EncIdx = extractXMLAttr(urlTagMatch[1], "enc_idx")
+		}
+		if len(thumbTagMatch) > 1 {
+			if item.Token == "" {
+				item.Token = extractXMLAttr(thumbTagMatch[1], "token")
+			}
+			if item.Key == "" {
+				item.Key = extractXMLAttr(thumbTagMatch[1], "key")
+			}
+			if item.EncIdx == "" {
+				item.EncIdx = extractXMLAttr(thumbTagMatch[1], "enc_idx")
+			}
+		}
+
+		width := extractXMLTagAttr(mediaXML, "size", "width")
+		height := extractXMLTagAttr(mediaXML, "size", "height")
+		if width != "" {
+			item.Width, _ = strconv.Atoi(width)
+		}
+		if height != "" {
+			item.Height, _ = strconv.Atoi(height)
+		}
+
+		duration := extractXMLTag(mediaXML, "videoDuration")
+		if duration == "" {
+			duration = extractXMLTag(mediaXML, "videoPlayDuration")
+		}
+		if duration != "" {
+			if d, err := strconv.ParseFloat(duration, 64); err == nil {
+				if d > 10 && strings.Contains(duration, ".") == false {
+					item.Duration = fmt.Sprintf("%.0f秒", d/10)
+				} else {
+					item.Duration = fmt.Sprintf("%.2f秒", d)
+				}
+			}
+		}
+
+		item.LivePhoto = parseSNSLivePhoto(mediaXML)
+		mediaList = append(mediaList, item)
 	}
 
 	return mediaList
 }
 
-// parseSNSVideoMedia 解析视频媒体
-func parseSNSVideoMedia(xml string) []SNSMedia {
-	var mediaList []SNSMedia
-
-	// 查找所有 media 标签
-	re := regexp.MustCompile(`<media>(.*?)</media>`)
-	matches := re.FindAllStringSubmatch(xml, -1)
-
-	for _, match := range matches {
-		if len(match) > 1 {
-			media := SNSMedia{Type: "video"}
-			mediaXML := match[1]
-
-			// 提取 URL
-			media.URL = html.UnescapeString(extractXMLTag(mediaXML, "url"))
-			media.ThumbURL = html.UnescapeString(extractXMLTag(mediaXML, "thumb"))
-
-			// 提取尺寸
-			width := extractXMLTagAttr(mediaXML, "size", "width")
-			height := extractXMLTagAttr(mediaXML, "size", "height")
-			if width != "" {
-				media.Width, _ = strconv.Atoi(width)
-			}
-			if height != "" {
-				media.Height, _ = strconv.Atoi(height)
-			}
-
-			// 提取时长
-			duration := extractXMLTag(mediaXML, "videoDuration")
-			if duration != "" {
-				if d, err := strconv.ParseFloat(duration, 64); err == nil {
-					media.Duration = fmt.Sprintf("%.2f秒", d)
-				}
-			}
-
-			mediaList = append(mediaList, media)
+func parseSNSLivePhoto(mediaXML string) *SNSMediaResource {
+	re := regexp.MustCompile(`<livePhoto>([\s\S]*?)</livePhoto>`)
+	match := re.FindStringSubmatch(mediaXML)
+	if len(match) <= 1 {
+		return nil
+	}
+	liveXML := match[1]
+	urlTagMatch := regexp.MustCompile(`<url([^>]*)>`).FindStringSubmatch(liveXML)
+	thumbTagMatch := regexp.MustCompile(`<thumb([^>]*)>`).FindStringSubmatch(liveXML)
+	res := &SNSMediaResource{
+		URL:      html.UnescapeString(extractXMLTag(liveXML, "url")),
+		ThumbURL: html.UnescapeString(extractXMLTag(liveXML, "thumb")),
+	}
+	if len(urlTagMatch) > 1 {
+		res.Token = extractXMLAttr(urlTagMatch[1], "token")
+		res.Key = extractXMLAttr(urlTagMatch[1], "key")
+		res.EncIdx = extractXMLAttr(urlTagMatch[1], "enc_idx")
+	}
+	if len(thumbTagMatch) > 1 {
+		if res.Token == "" {
+			res.Token = extractXMLAttr(thumbTagMatch[1], "token")
+		}
+		if res.Key == "" {
+			res.Key = extractXMLAttr(thumbTagMatch[1], "key")
+		}
+		if res.EncIdx == "" {
+			res.EncIdx = extractXMLAttr(thumbTagMatch[1], "enc_idx")
 		}
 	}
+	if res.URL == "" && res.ThumbURL == "" {
+		return nil
+	}
+	return res
+}
 
-	return mediaList
+func extractXMLAttr(attrs, key string) string {
+	re := regexp.MustCompile(key + `="([^"]*)"`)
+	matches := re.FindStringSubmatch(attrs)
+	if len(matches) > 1 {
+		return strings.TrimSpace(matches[1])
+	}
+	return ""
+}
+
+func extractSNSVideoKey(xml string) string {
+	re := regexp.MustCompile(`<enc\s+key="(\d+)"`)
+	matches := re.FindStringSubmatch(xml)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
+}
+
+func applySNSVideoKey(mediaList []SNSMedia, videoKey string) {
+	if videoKey == "" {
+		return
+	}
+	for i := range mediaList {
+		if mediaList[i].Type == "video" && isEmptySNSMediaKey(mediaList[i].Key) {
+			mediaList[i].Key = videoKey
+		}
+		if mediaList[i].LivePhoto != nil && isEmptySNSMediaKey(mediaList[i].LivePhoto.Key) {
+			mediaList[i].LivePhoto.Key = videoKey
+		}
+	}
+}
+
+func isEmptySNSMediaKey(key string) bool {
+	key = strings.TrimSpace(key)
+	return key == "" || key == "0"
 }
 
 // parseSNSArticle 解析文章信息

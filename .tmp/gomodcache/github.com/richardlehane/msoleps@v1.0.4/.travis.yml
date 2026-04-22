@@ -1,0 +1,8 @@
+language: go
+go:
+  - 1.2
+  - stable
+  - tip
+
+script:
+  - go test -v -race ./...

@@ -519,12 +519,12 @@ func (a *App) settingSelected(i *menu.Item) {
 		},
 		{
 			name:        "设置触发通知方式",
-			description: "可选 mcp / post / both",
+			description: "可选 mcp / post / both / weixin / all",
 			action:      a.settingHookNotifyMode,
 		},
 		{
 			name:        "设置触发 POST 地址",
-			description: "通知方式为 post/both 时生效",
+			description: "通知方式包含 post 时生效",
 			action:      a.settingHookPostURL,
 		},
 		{
@@ -754,13 +754,10 @@ func (a *App) settingHookPostURL() {
 func (a *App) settingHookBeforeCount() {
 	formView := form.NewForm("设置触发前文条数")
 	temp := fmt.Sprintf("%d", a.ctx.HookBeforeCount)
-	if strings.TrimSpace(temp) == "0" {
-		temp = "5"
-	}
 	formView.AddInputField("前文条数", temp, 0, nil, func(text string) { temp = text })
 	formView.AddButton("保存", func() {
-		n := 5
-		if v, err := strconv.Atoi(strings.TrimSpace(temp)); err == nil && v > 0 {
+		n := 0
+		if v, err := strconv.Atoi(strings.TrimSpace(temp)); err == nil && v >= 0 {
 			n = v
 		}
 		a.ctx.SetHookBeforeCount(n)
@@ -775,13 +772,10 @@ func (a *App) settingHookBeforeCount() {
 func (a *App) settingHookAfterCount() {
 	formView := form.NewForm("设置触发后文条数")
 	temp := fmt.Sprintf("%d", a.ctx.HookAfterCount)
-	if strings.TrimSpace(temp) == "0" {
-		temp = "5"
-	}
 	formView.AddInputField("后文条数", temp, 0, nil, func(text string) { temp = text })
 	formView.AddButton("保存", func() {
-		n := 5
-		if v, err := strconv.Atoi(strings.TrimSpace(temp)); err == nil && v > 0 {
+		n := 0
+		if v, err := strconv.Atoi(strings.TrimSpace(temp)); err == nil && v >= 0 {
 			n = v
 		}
 		a.ctx.SetHookAfterCount(n)

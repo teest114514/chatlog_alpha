@@ -35,6 +35,10 @@ type Service struct {
 	md5PathCache map[string]string
 	md5PathMu    sync.RWMutex
 
+	// 朋友圈媒体 URL 到解密 key 的缓存
+	snsMediaKeyCache map[string]string
+	snsMediaKeyMu    sync.RWMutex
+
 	// 失败时自动刷新图片密钥的节流控制
 	imgKeyRefreshMu   sync.Mutex
 	lastImgKeyRefresh time.Time
@@ -63,6 +67,10 @@ type Config interface {
 	SetHookPostURL(url string)
 	SetHookBeforeCount(n int)
 	SetHookAfterCount(n int)
+	SetHookWeixinInterval(n int)
+	SetHookForwardAll(enabled bool)
+	SetHookForwardContacts(raw string)
+	SetHookForwardChatRooms(raw string)
 }
 
 func NewService(conf Config, db *database.Service) *Service {
@@ -83,12 +91,13 @@ func NewService(conf Config, db *database.Service) *Service {
 	)
 
 	s := &Service{
-		conf:            conf,
-		db:              db,
-		router:          router,
-		md5PathCache:    make(map[string]string),
-		hookEvents:      make([]messagehook.Event, 0, 200),
-		hookSubscribers: map[chan messagehook.Event]struct{}{},
+		conf:             conf,
+		db:               db,
+		router:           router,
+		md5PathCache:     make(map[string]string),
+		snsMediaKeyCache: make(map[string]string),
+		hookEvents:       make([]messagehook.Event, 0, 200),
+		hookSubscribers:  map[chan messagehook.Event]struct{}{},
 	}
 	s.loadHookEventsFromDisk()
 	s.db.SetMessageHookNotifier(s.pushMessageHookEvent)
@@ -155,20 +164,35 @@ func (s *Service) pushMessageHookEvent(evt messagehook.Event) {
 	s.appendHookEvent(evt)
 	s.saveHookEventsToDisk()
 	s.broadcastHookEvent(evt)
-	params := map[string]any{}
-	raw, err := json.Marshal(evt)
-	if err == nil {
-		_ = json.Unmarshal(raw, &params)
+	if eventHasDeliveryTarget(evt, "mcp") {
+		params := map[string]any{}
+		raw, err := json.Marshal(evt)
+		if err == nil {
+			_ = json.Unmarshal(raw, &params)
+		}
+		if len(params) == 0 {
+			params = map[string]any{
+				"created_at":  evt.CreatedAt,
+				"keyword":     evt.Keyword,
+				"talker":      evt.Talker,
+				"trigger_seq": evt.TriggerSeq,
+			}
+		}
+		s.mcpServer.SendNotificationToAllClients("notifications/chatlog/keyword_hit", params)
 	}
-	if len(params) == 0 {
-		params = map[string]any{
-			"created_at":  evt.CreatedAt,
-			"keyword":     evt.Keyword,
-			"talker":      evt.Talker,
-			"trigger_seq": evt.TriggerSeq,
+}
+
+func eventHasDeliveryTarget(evt messagehook.Event, target string) bool {
+	target = strings.TrimSpace(strings.ToLower(target))
+	if target == "" {
+		return false
+	}
+	for _, item := range evt.Deliveries {
+		if strings.TrimSpace(strings.ToLower(item.Target)) == target {
+			return true
 		}
 	}
-	s.mcpServer.SendNotificationToAllClients("notifications/chatlog/keyword_hit", params)
+	return false
 }
 
 func (s *Service) appendHookEvent(evt messagehook.Event) {

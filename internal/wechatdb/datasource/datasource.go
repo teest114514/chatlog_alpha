@@ -48,6 +48,9 @@ type DataSource interface {
 	// 执行 SQL 查询
 	ExecuteSQL(group, file, query string) ([]map[string]interface{}, error)
 
+	// 全局搜索所有数据库中可搜索的文本列
+	SearchAll(keyword string, limit int, deep bool) ([]map[string]interface{}, error)
+
 	Close() error
 }
 

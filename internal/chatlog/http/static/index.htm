@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chatlog 管理控制台</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <style>
         :root {
             --primary: #2563eb;
@@ -224,6 +225,246 @@
             overflow-y: auto;
         }
 
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+            margin-bottom: 28px;
+        }
+
+        .analytics-panel {
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+            padding: 18px;
+        }
+
+        .analytics-panel h3 {
+            margin: 0 0 6px;
+            font-size: 1.1rem;
+        }
+
+        .analytics-panel p {
+            margin: 0 0 14px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .analytics-title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .analytics-title-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .analytics-toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+
+        .analytics-toolbar select {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .analytics-body {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .analytics-empty {
+            border: 1px dashed var(--border);
+            border-radius: 10px;
+            padding: 24px 16px;
+            color: var(--text-secondary);
+            text-align: center;
+            background: rgba(255,255,255,0.75);
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .kpi-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .kpi-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--text-main);
+            display: block;
+        }
+
+        .kpi-label {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+
+        .analytics-section {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .analytics-section h4 {
+            margin: 0 0 10px;
+            font-size: 0.95rem;
+        }
+
+        .bar-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .bar-row {
+            display: grid;
+            grid-template-columns: 72px 1fr 48px;
+            gap: 8px;
+            align-items: center;
+            font-size: 0.84rem;
+        }
+
+        .bar-label {
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .bar-track {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: #e5e7eb;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #60a5fa 0%, #2563eb 100%);
+        }
+
+        .bar-fill.success {
+            background: linear-gradient(90deg, #34d399 0%, #059669 100%);
+        }
+
+        .bar-fill.warning {
+            background: linear-gradient(90deg, #fbbf24 0%, #f97316 100%);
+        }
+
+        .bar-fill.pink {
+            background: linear-gradient(90deg, #f9a8d4 0%, #ec4899 100%);
+        }
+
+        .bar-value {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            color: var(--text-main);
+        }
+
+        .hour-bars {
+            display: grid;
+            grid-template-columns: repeat(24, minmax(0, 1fr));
+            gap: 4px;
+            align-items: end;
+            height: 140px;
+        }
+
+        .hour-bar-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .hour-bar {
+            width: 100%;
+            min-height: 2px;
+            border-radius: 8px 8px 0 0;
+            background: linear-gradient(180deg, #93c5fd 0%, #2563eb 100%);
+        }
+
+        .hour-label {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            line-height: 1;
+        }
+
+        .hour-count {
+            font-size: 0.68rem;
+            color: var(--text-secondary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .range-text {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+
+        .analytics-link-btn {
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #fff;
+            color: var(--text-main);
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .analytics-link-btn:hover {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+            color: var(--primary);
+        }
+
+        .analytics-subtoolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 260px;
+        }
+
+        .chart-container.wide {
+            height: 220px;
+        }
+
+        @media (max-width: 768px) {
+            .kpi-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .bar-row {
+                grid-template-columns: 60px 1fr 40px;
+            }
+        }
+
         /* Database List Styles */
         .db-group {
             margin-bottom: 20px;
@@ -300,6 +541,9 @@
         .data-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; flex-shrink: 0; flex-wrap: wrap; }
         .spacer { flex: 1; }
         .search-input { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; width: 200px; font-size: 0.9rem; }
+        .global-search-summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 16px 0 10px; flex-wrap: wrap; }
+        .global-search-preview { max-width: 520px; white-space: normal !important; word-break: break-word; }
+        .cell-monospace { font-family: 'Consolas', monospace; font-size: 0.85rem; }
         
         .table-scroll { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 6px; position: relative; }
         
@@ -308,10 +552,10 @@
         .sql-editor { width: 100%; height: 120px; font-family: 'Consolas', monospace; padding: 10px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; resize: vertical; font-size: 14px; background: #f8fafc; }
         .sql-editor:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1); }
         
-        #data-table, #sql-result-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
-        #data-table th, #sql-result-table th, #data-table td, #sql-result-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); white-space: nowrap; max-width: 400px; overflow: hidden; text-overflow: ellipsis; }
-        #data-table th, #sql-result-table th { background: #f3f4f6; position: sticky; top: 0; z-index: 10; font-weight: 600; text-align: left; }
-        #data-table tr:hover, #sql-result-table tr:hover { background-color: #f9fafb; }
+        #data-table, #sql-result-table, #global-search-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
+        #data-table th, #sql-result-table th, #global-search-table th, #data-table td, #sql-result-table td, #global-search-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); white-space: nowrap; max-width: 400px; overflow: hidden; text-overflow: ellipsis; }
+        #data-table th, #sql-result-table th, #global-search-table th { background: #f3f4f6; position: sticky; top: 0; z-index: 10; font-weight: 600; text-align: left; }
+        #data-table tr:hover, #sql-result-table tr:hover, #global-search-table tr:hover { background-color: #f9fafb; }
         
         .pagination { display: flex; justify-content: center; gap: 15px; margin-top: 15px; align-items: center; flex-shrink: 0; }
 
@@ -339,7 +583,8 @@
 
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('dashboard')">仪表盘 & 数据库</button>
-            <button class="tab-btn" onclick="switchTab('hook')">关键词推送</button>
+            <button class="tab-btn" onclick="switchTab('global-search')">全局搜索</button>
+            <button class="tab-btn" onclick="switchTab('hook')">推送页面</button>
             <button class="tab-btn" onclick="switchTab('wxcli')">wx-cli 兼容</button>
             <button class="tab-btn" onclick="switchTab('session')">最近会话</button>
             <button class="tab-btn" onclick="switchTab('chatroom')">群聊管理</button>
@@ -350,6 +595,57 @@
 
         <!-- Dashboard / DB List -->
         <div id="dashboard" class="tab-content active">
+            <h2>聊天分析</h2>
+            <p class="text-gray" style="margin-bottom: 20px;">参考 WeFlow 的分析视图，快速查看私聊与群聊的核心统计分布。</p>
+            <div class="analytics-grid">
+                <section class="analytics-panel">
+                    <div class="analytics-title-row">
+                        <div>
+                            <h3>私聊分析</h3>
+                            <p>展示消息类型、发送/接收比例与活跃时段。</p>
+                        </div>
+                        <div class="analytics-title-actions">
+                            <button class="analytics-link-btn" onclick="openDashboardChat('private')">打开私聊</button>
+                        </div>
+                    </div>
+                    <div class="analytics-toolbar">
+                        <select id="dashboard-private-select" onchange="loadDashboardStats('private')"></select>
+                        <select id="dashboard-private-range" onchange="loadDashboardStats('private')">
+                            <option value="all">全部时间</option>
+                            <option value="30d">最近 30 天</option>
+                            <option value="90d">最近 90 天</option>
+                        </select>
+                        <button class="btn btn-secondary btn-sm" onclick="loadDashboardStats('private', true)">刷新</button>
+                    </div>
+                    <div id="dashboard-private-body" class="analytics-body">
+                        <div class="analytics-empty">加载中...</div>
+                    </div>
+                </section>
+                <section class="analytics-panel">
+                    <div class="analytics-title-row">
+                        <div>
+                            <h3>群聊分析</h3>
+                            <p>展示发言排行、消息类型与群聊活跃时段。</p>
+                        </div>
+                        <div class="analytics-title-actions">
+                            <button class="analytics-link-btn" onclick="openDashboardChat('group')">打开群聊</button>
+                        </div>
+                    </div>
+                    <div class="analytics-toolbar">
+                        <select id="dashboard-group-select" onchange="loadDashboardStats('group')"></select>
+                        <select id="dashboard-group-range" onchange="loadDashboardStats('group')">
+                            <option value="all">全部时间</option>
+                            <option value="30d">最近 30 天</option>
+                            <option value="90d">最近 90 天</option>
+                        </select>
+                        <button class="btn btn-secondary btn-sm" onclick="loadDashboardStats('group', true)">刷新</button>
+                    </div>
+                    <div id="dashboard-group-body" class="analytics-body">
+                        <div class="analytics-empty">加载中...</div>
+                    </div>
+                </section>
+            </div>
+
             <h2>当前可查询数据库</h2>
             <p class="text-gray" style="margin-bottom: 20px;">点击下方的数据库文件可直接浏览其表结构和数据内容。</p>
             <div id="db-list-container">
@@ -357,37 +653,113 @@
             </div>
         </div>
 
+        <div id="global-search" class="tab-content">
+            <h2>全局数据库搜索</h2>
+            <p class="text-gray" style="margin-bottom: 20px;">在所有可查询数据库中搜索关键词，返回命中的数据库、表、列和行内容摘要。</p>
+            <div class="form-grid">
+                <div class="form-group" style="grid-column: span 2;">
+                    <label>关键词</label>
+                    <input type="text" id="global-search-keyword" placeholder="输入要搜索的关键词" onkeydown="if(event.key === 'Enter') runGlobalSearch()">
+                </div>
+                <div class="form-group">
+                    <label>返回上限</label>
+                    <input type="number" id="global-search-limit" value="100" min="1" max="500">
+                </div>
+                <div class="form-group">
+                    <label>搜索模式</label>
+                    <select id="global-search-mode">
+                        <option value="quick">快速搜索</option>
+                        <option value="deep">深度搜索</option>
+                    </select>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="runGlobalSearch()">搜索</button>
+            </div>
+            <div id="global-search-result" class="result-area hidden"></div>
+        </div>
+
         <div id="hook" class="tab-content">
-            <h2>关键词推送</h2>
-            <p class="text-gray" style="margin-bottom: 20px;">与 TUI 同步配置关键词触发器，实时查看推送事件与运行状态。</p>
+            <h2>推送页面</h2>
+            <p class="text-gray" style="margin-bottom: 20px;">统一配置关键词推送、实时全部转发、指定联系人转发和群聊部分转发，并查看每次投递结果。</p>
             <div class="form-grid">
                 <div class="form-group" style="grid-column: 1 / -1;">
-                    <label>关键词（支持多个，使用 ｜ 分隔）</label>
+                    <label>关键词推送（支持多个，使用 ｜ 分隔）</label>
                     <input type="text" id="hook-keywords" placeholder="例如：到账｜告警｜异常">
+                    <div class="text-gray text-sm">实时全部转发开启后，关键词推送、指定联系人转发、群聊部分转发会自动禁用。</div>
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" id="hook-forward-all" onchange="syncHookFormState()"> 实时全部转发</label>
+                    <div class="text-gray text-sm">开启后，所有新消息都会按当前推送方式转发。</div>
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                    <label>指定联系人转发</label>
+                    <input type="text" id="hook-forward-contacts" placeholder="多个使用逗号 / 竖线分隔，例如：文件传输助手, 张三, wxid_xxx">
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label>群聊部分转发</label>
+                    <input type="text" id="hook-forward-chatrooms" placeholder="多个使用逗号 / 竖线分隔，例如：项目群, family@chatroom">
                 </div>
                 <div class="form-group">
                     <label>通知方式</label>
-                    <select id="hook-notify-mode">
-                        <option value="mcp">mcp</option>
-                        <option value="post">post</option>
-                        <option value="both">both</option>
-                    </select>
+                    <div style="display:flex; gap:14px; flex-wrap:wrap; padding-top:8px;">
+                        <label><input type="checkbox" id="hook-target-mcp" onchange="syncHookFormState()"> MCP</label>
+                        <label><input type="checkbox" id="hook-target-post" onchange="syncHookFormState()"> POST</label>
+                        <label><input type="checkbox" id="hook-target-weixin" onchange="syncHookFormState()"> 微信</label>
+                    </div>
                 </div>
                 <div class="form-group" style="grid-column: span 2;">
-                    <label>POST 地址（mode=post/both 时生效）</label>
+                    <label>POST 地址（包含 post 时生效）</label>
                     <input type="text" id="hook-post-url" placeholder="http://127.0.0.1:8080/webhook">
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;" id="hook-hermes-weixin-section">
+                    <label>Hermes Weixin Channel</label>
+                    <div class="text-gray text-sm">选择包含 <code>weixin</code> 的模式后，会自动读取 <code>HERMES_HOME</code> 或 <code>~/.hermes</code> 下的 <code>WEIXIN_HOME_CHANNEL</code>、account 和 token 配置，并推送到 Hermes 的微信 home channel。</div>
+                </div>
+                <div class="form-group">
+                    <label>Hermes Home</label>
+                    <input type="text" id="hook-hermes-home" placeholder="默认自动检测 ~/.hermes 或 HERMES_HOME">
+                </div>
+                <div class="form-group">
+                    <label>Weixin Home Channel</label>
+                    <input type="text" id="hook-weixin-home-channel" placeholder="例如 wxid_xxx 或 channel id">
+                </div>
+                <div class="form-group">
+                    <label>Channel 名称</label>
+                    <input type="text" id="hook-weixin-home-channel-name" placeholder="可选，便于识别">
+                </div>
+                <div class="form-group">
+                    <label>Weixin Account ID</label>
+                    <input type="text" id="hook-weixin-account-id" placeholder="Hermes 微信账号 account_id">
+                </div>
+                <div class="form-group">
+                    <label>Weixin Token</label>
+                    <input type="text" id="hook-weixin-token" placeholder="Hermes 微信 bot token">
+                </div>
+                <div class="form-group">
+                    <label>Weixin Base URL</label>
+                    <input type="text" id="hook-weixin-base-url" placeholder="https://ilinkai.weixin.qq.com">
+                </div>
+                <div class="form-group">
+                    <label>Weixin CDN Base URL</label>
+                    <input type="text" id="hook-weixin-cdn-base-url" placeholder="https://novac2c.cdn.weixin.qq.com/c2c">
                 </div>
                 <div class="form-group">
                     <label>前文条数</label>
-                    <input type="number" id="hook-before-count" value="5" min="1" max="100">
+                    <input type="number" id="hook-before-count" value="5" min="0" max="100">
                 </div>
                 <div class="form-group">
                     <label>后文条数</label>
-                    <input type="number" id="hook-after-count" value="5" min="1" max="100">
+                    <input type="number" id="hook-after-count" value="5" min="0" max="100">
+                </div>
+                <div class="form-group">
+                    <label>微信推送间隔（秒）</label>
+                    <input type="number" id="hook-weixin-interval" value="5" min="1" max="300">
                 </div>
             </div>
             <div class="actions">
                 <button class="btn btn-primary" onclick="saveHookConfig()">保存配置</button>
+                <button class="btn btn-secondary" id="hook-save-hermes-btn" onclick="saveHermesWeixinConfig()">保存 Hermes 微信配置</button>
                 <button class="btn btn-secondary" onclick="loadHookPanel()">刷新状态</button>
             </div>
             <div id="hook-status" class="result-area" style="margin-top:15px;"></div>
@@ -593,6 +965,22 @@
                     <input type="number" id="chatlog-limit" value="100">
                 </div>
                 <div class="form-group">
+                    <label>消息类型 (可选)</label>
+                    <select id="chatlog-msg-type">
+                        <option value="">全部</option>
+                        <option value="1">text</option>
+                        <option value="3">image</option>
+                        <option value="34">voice</option>
+                        <option value="42">card</option>
+                        <option value="43">video</option>
+                        <option value="47">sticker</option>
+                        <option value="48">location</option>
+                        <option value="49">share</option>
+                        <option value="50">voip</option>
+                        <option value="10000">system</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label>输出格式</label>
                     <select id="chatlog-format">
                         <option value="yaml">YAML (默认)</option>
@@ -690,12 +1078,29 @@
         let hookEventSource = null;
         let hookEventsCache = [];
         let hookStatusTimer = null;
+        let hermesWeixinEditable = false;
+        let dashboardSessions = [];
+        const dashboardCharts = {};
+        const dashboardMsgTypeMap = {
+            text: '1',
+            image: '3',
+            voice: '34',
+            card: '42',
+            video: '43',
+            sticker: '47',
+            location: '48',
+            share: '49',
+            voip: '50',
+            system: '10000'
+        };
 
         // Init
         document.addEventListener('DOMContentLoaded', () => {
             loadDBList();
+            loadDashboardAnalytics();
             loadHookPanel();
             connectHookStream();
+            syncHookFormState();
             hookStatusTimer = setInterval(() => {
                 const hookTab = document.getElementById('hook');
                 if (hookTab && hookTab.classList.contains('active')) {
@@ -704,16 +1109,24 @@
             }, 5000);
         });
 
+        window.addEventListener('resize', () => {
+            Object.values(dashboardCharts).forEach(chart => {
+                if (chart && typeof chart.resize === 'function') chart.resize();
+            });
+        });
+
         // Tab Switching for Main Page
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            
-            event.target.classList.add('active');
+
+            const targetBtn = document.querySelector(`.tab-btn[onclick*="switchTab('${tabId}')"]`);
+            if (targetBtn) targetBtn.classList.add('active');
             document.getElementById(tabId).classList.add('active');
             
             if(tabId === 'dashboard') {
                 loadDBList();
+                loadDashboardAnalytics();
             }
             if (tabId === 'hook') {
                 loadHookPanel();
@@ -722,7 +1135,7 @@
         }
 
         async function loadHookPanel() {
-            await Promise.all([loadHookConfig(), loadHookStatus(), loadHookEvents()]);
+            await Promise.all([loadHookConfig(), loadHookStatus(), loadHookEvents(), loadHermesWeixinConfig()]);
         }
 
         async function loadHookConfig() {
@@ -731,10 +1144,15 @@
                 if (!res.ok) throw new Error(await res.text());
                 const data = await res.json();
                 document.getElementById('hook-keywords').value = data.keywords || '';
-                document.getElementById('hook-notify-mode').value = data.notify_mode || 'mcp';
+                document.getElementById('hook-forward-all').checked = !!data.forward_all;
+                document.getElementById('hook-forward-contacts').value = data.forward_contacts || '';
+                document.getElementById('hook-forward-chatrooms').value = data.forward_chatrooms || '';
+                applyHookNotifyMode(data.notify_mode || 'mcp');
                 document.getElementById('hook-post-url').value = data.post_url || '';
-                document.getElementById('hook-before-count').value = data.before_count || 5;
-                document.getElementById('hook-after-count').value = data.after_count || 5;
+                document.getElementById('hook-before-count').value = Number.isInteger(data.before_count) ? data.before_count : 5;
+                document.getElementById('hook-after-count').value = Number.isInteger(data.after_count) ? data.after_count : 5;
+                document.getElementById('hook-weixin-interval').value = Number.isInteger(data.weixin_interval) ? data.weixin_interval : 5;
+                syncHookFormState();
             } catch (e) {
                 const box = document.getElementById('hook-status');
                 box.innerHTML = `<div class="text-danger">加载配置失败: ${escapeHtml(e.message)}</div>`;
@@ -742,12 +1160,27 @@
         }
 
         async function saveHookConfig() {
+            syncHookFormState();
+            const beforeCount = parseHookNonNegative(document.getElementById('hook-before-count').value);
+            const afterCount = parseHookNonNegative(document.getElementById('hook-after-count').value);
+            if (beforeCount === null) {
+                alert('前文条数不能为负数');
+                return;
+            }
+            if (afterCount === null) {
+                alert('后文条数不能为负数');
+                return;
+            }
             const payload = {
-                keywords: document.getElementById('hook-keywords').value.trim(),
-                notify_mode: document.getElementById('hook-notify-mode').value,
+                keywords: document.getElementById('hook-forward-all').checked ? '' : document.getElementById('hook-keywords').value.trim(),
+                forward_all: document.getElementById('hook-forward-all').checked,
+                forward_contacts: document.getElementById('hook-forward-all').checked ? '' : document.getElementById('hook-forward-contacts').value.trim(),
+                forward_chatrooms: document.getElementById('hook-forward-all').checked ? '' : document.getElementById('hook-forward-chatrooms').value.trim(),
+                notify_mode: collectHookNotifyMode(),
                 post_url: document.getElementById('hook-post-url').value.trim(),
-                before_count: parseInt(document.getElementById('hook-before-count').value, 10) || 5,
-                after_count: parseInt(document.getElementById('hook-after-count').value, 10) || 5
+                before_count: beforeCount,
+                after_count: afterCount,
+                weixin_interval: Math.max(1, parseInt(document.getElementById('hook-weixin-interval').value, 10) || 5)
             };
             try {
                 const res = await fetch('/api/v1/hook/config', {
@@ -763,29 +1196,179 @@
             }
         }
 
+        function parseHookNonNegative(raw) {
+            const value = parseInt(String(raw || '').trim(), 10);
+            if (Number.isNaN(value)) return 0;
+            if (value < 0) return null;
+            return value;
+        }
+
+        function applyHookNotifyMode(mode) {
+            const normalized = String(mode || 'mcp').toLowerCase();
+            document.getElementById('hook-target-mcp').checked = normalized.includes('mcp') || normalized === 'both' || normalized === 'all';
+            document.getElementById('hook-target-post').checked = normalized.includes('post') || normalized === 'both' || normalized === 'all';
+            document.getElementById('hook-target-weixin').checked = normalized.includes('weixin') || normalized === 'all';
+        }
+
+        function collectHookNotifyMode() {
+            const parts = [];
+            if (document.getElementById('hook-target-mcp').checked) parts.push('mcp');
+            if (document.getElementById('hook-target-post').checked) parts.push('post');
+            if (document.getElementById('hook-target-weixin').checked) parts.push('weixin');
+            if (parts.length === 0) return 'mcp';
+            return parts.join(',');
+        }
+
+        function setHermesWeixinEditable(enabled, reason = '') {
+            hermesWeixinEditable = !!enabled;
+            [
+                'hook-hermes-home',
+                'hook-weixin-home-channel',
+                'hook-weixin-home-channel-name',
+                'hook-weixin-account-id',
+                'hook-weixin-token',
+                'hook-weixin-base-url',
+                'hook-weixin-cdn-base-url',
+                'hook-save-hermes-btn'
+            ].forEach((id) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.disabled = !hermesWeixinEditable;
+                if (!hermesWeixinEditable && reason) {
+                    el.title = reason;
+                } else {
+                    el.removeAttribute('title');
+                }
+            });
+        }
+
+        function syncHookFormState() {
+            const forwardAll = !!document.getElementById('hook-forward-all').checked;
+            const postEnabled = !!document.getElementById('hook-target-post').checked;
+            const weixinEnabled = !!document.getElementById('hook-target-weixin').checked;
+            ['hook-keywords', 'hook-forward-contacts', 'hook-forward-chatrooms', 'hook-before-count', 'hook-after-count'].forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = forwardAll;
+            });
+            if (forwardAll) {
+                document.getElementById('hook-keywords').value = '';
+                document.getElementById('hook-forward-contacts').value = '';
+                document.getElementById('hook-forward-chatrooms').value = '';
+            }
+            document.getElementById('hook-post-url').disabled = !postEnabled;
+            document.getElementById('hook-weixin-interval').disabled = !weixinEnabled;
+            const saveBtn = document.getElementById('hook-save-hermes-btn');
+            if (saveBtn) {
+                saveBtn.disabled = !weixinEnabled || !hermesWeixinEditable;
+            }
+        }
+
+        async function loadHermesWeixinConfig() {
+            try {
+                const res = await fetch('/api/v1/hook/hermes/weixin');
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                document.getElementById('hook-hermes-home').value = data.hermes_home || '';
+                document.getElementById('hook-weixin-home-channel').value = data.home_channel || '';
+                document.getElementById('hook-weixin-home-channel-name').value = data.home_channel_name || '';
+                document.getElementById('hook-weixin-account-id').value = data.account_id || '';
+                document.getElementById('hook-weixin-token').value = data.token || '';
+                document.getElementById('hook-weixin-base-url').value = data.base_url || '';
+                document.getElementById('hook-weixin-cdn-base-url').value = data.cdn_base_url || '';
+                setHermesWeixinEditable(!!data.editable, data.error || '无法读取 Hermes Weixin 配置');
+                syncHookFormState();
+            } catch (e) {
+                setHermesWeixinEditable(false, e.message);
+                const box = document.getElementById('hook-status');
+                if (box && !box.innerHTML) {
+                    box.innerHTML = `<div class="text-danger">加载 Hermes 微信配置失败: ${escapeHtml(e.message)}</div>`;
+                }
+            }
+        }
+
+        async function saveHermesWeixinConfig() {
+            if (!hermesWeixinEditable) {
+                alert('当前无法读取 Hermes Weixin 配置，已禁止编辑');
+                return;
+            }
+            const payload = {
+                hermes_home: document.getElementById('hook-hermes-home').value.trim(),
+                home_channel: document.getElementById('hook-weixin-home-channel').value.trim(),
+                home_channel_name: document.getElementById('hook-weixin-home-channel-name').value.trim(),
+                account_id: document.getElementById('hook-weixin-account-id').value.trim(),
+                token: document.getElementById('hook-weixin-token').value.trim(),
+                base_url: document.getElementById('hook-weixin-base-url').value.trim(),
+                cdn_base_url: document.getElementById('hook-weixin-cdn-base-url').value.trim()
+            };
+            try {
+                const res = await fetch('/api/v1/hook/hermes/weixin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || JSON.stringify(data));
+                document.getElementById('hook-hermes-home').value = data.hermes_home || payload.hermes_home || '';
+                document.getElementById('hook-weixin-token').value = data.token || payload.token || '';
+                setHermesWeixinEditable(!!data.editable, data.error || '');
+                syncHookFormState();
+                await loadHookStatus();
+                alert('Hermes 微信配置已保存');
+            } catch (e) {
+                alert(`保存 Hermes 微信配置失败: ${e.message}`);
+            }
+        }
+
         async function loadHookStatus() {
             const box = document.getElementById('hook-status');
             try {
                 const res = await fetch('/api/v1/hook/status');
                 if (!res.ok) throw new Error(await res.text());
                 const data = await res.json();
+                const wx = data.weixin || {};
                 const running = data.running ? '<span class="text-success">运行中</span>' : '<span class="text-danger">未运行</span>';
                 const keywords = Array.isArray(data.keywords) && data.keywords.length > 0
                     ? data.keywords.map(escapeHtml).join(' ｜ ')
                     : '<span class="text-gray">未设置</span>';
+                const wxEnabled = !!wx.enabled;
+                const wxAvailable = !!wx.available;
+                let wxStatus = '<span class="text-gray">未启用</span>';
+                if (wxEnabled && wxAvailable) {
+                    wxStatus = '<span class="text-success">已检测到 Hermes Weixin 配置</span>';
+                } else if (wxEnabled) {
+                    wxStatus = `<span class="text-danger">未检测到可用配置</span>${wx.error ? `：${escapeHtml(wx.error)}` : ''}`;
+                }
+                const hermesInstalled = wx.installed
+                    ? `<span class="text-success">已安装</span>${wx.hermes_bin ? ` (${escapeHtml(wx.hermes_bin)})` : ''}`
+                    : '<span class="text-danger">未安装</span>';
                 box.innerHTML = `
                     <div class="result-header"><strong>运行状态</strong></div>
                     <div class="text-sm">服务状态: ${running}</div>
                     <div class="text-sm">关键词数量: ${data.keywords_count || 0}</div>
                     <div class="text-sm">关键词: ${keywords}</div>
+                    <div class="text-sm">实时全部转发: ${data.forward_all ? '<span class="text-success">开启</span>' : '<span class="text-gray">关闭</span>'}</div>
+                    <div class="text-sm">指定联系人: ${escapeHtml((data.forward_contacts || []).join(' ｜ ')) || '<span class="text-gray">未设置</span>'}</div>
+                    <div class="text-sm">群聊部分转发: ${escapeHtml((data.forward_chatrooms || []).join(' ｜ ')) || '<span class="text-gray">未设置</span>'}</div>
                     <div class="text-sm">通知方式: ${escapeHtml(data.notify_mode || 'mcp')}</div>
                     <div class="text-sm">POST 地址: ${escapeHtml(data.post_url || '') || '<span class="text-gray">未设置</span>'}</div>
-                    <div class="text-sm">上下文: 前 ${data.before_count || 5} / 后 ${data.after_count || 5}</div>
+                    <div class="text-sm">Hermes Agent: ${hermesInstalled}</div>
+                    <div class="text-sm">Weixin 推送: ${wxStatus}</div>
+                    <div class="text-sm">Hermes 配置编辑: ${wx.editable ? '<span class="text-success">可编辑</span>' : '<span class="text-danger">不可编辑</span>'}</div>
+                    <div class="text-sm">Hermes Home: ${escapeHtml(wx.hermes_home || '') || '<span class="text-gray">未检测到</span>'}</div>
+                    <div class="text-sm">Weixin Home Channel: ${escapeHtml(wx.home_channel_name || wx.home_channel || '') || '<span class="text-gray">未检测到</span>'}</div>
+                    <div class="text-sm">Home Channel 来源: ${escapeHtml(wx.home_channel_from || '') || '<span class="text-gray">未检测到</span>'}</div>
+                    <div class="text-sm">Weixin Account: ${escapeHtml(wx.account_id || '') || '<span class="text-gray">未检测到</span>'}</div>
+                    <div class="text-sm">Weixin Base URL: ${escapeHtml(wx.base_url || '') || '<span class="text-gray">未检测到</span>'}</div>
+                    <div class="text-sm">Weixin CDN Base URL: ${escapeHtml(wx.cdn_base_url || '') || '<span class="text-gray">未检测到</span>'}</div>
+                    <div class="text-sm">上下文: 前 ${data.before_count ?? 5} / 后 ${data.after_count ?? 5}</div>
+                    <div class="text-sm">微信推送间隔: ${data.weixin_interval || 5} 秒</div>
                     <div class="text-sm">MCP 方法: <code>${escapeHtml(data.mcp_notification_method || '')}</code></div>
                     <div class="text-sm">SSE 连接数: ${data.sse_clients || 0}</div>
                     <div class="text-sm">累计事件: ${data.event_count || 0}</div>
                     <div class="text-sm">最近事件时间: ${escapeHtml(data.last_event_at || '-')}</div>
                 `;
+                setHermesWeixinEditable(!!wx.editable, wx.error || '无法读取 Hermes Weixin 配置');
+                syncHookFormState();
             } catch (e) {
                 box.innerHTML = `<div class="text-danger">加载状态失败: ${escapeHtml(e.message)}</div>`;
             }
@@ -868,7 +1451,18 @@
             }
             const lines = hookEventsCache.map((evt, idx) => {
                 const title = `[${idx + 1}] ${evt.created_at || ''} | 关键词: ${evt.keyword || ''} | 会话: ${evt.talker_name || evt.talker || ''} | 发送者: ${evt.sender_name || evt.sender || ''}`;
+                const ruleTypeMap = {
+                    keyword: '关键词推送',
+                    forward_all: '实时全部转发',
+                    forward_contact: '指定联系人转发',
+                    forward_chatroom: '群聊部分转发'
+                };
+                const ruleLine = `触发规则: ${ruleTypeMap[evt.rule_type] || evt.rule_type || '-'}${evt.rule_label ? ` (${evt.rule_label})` : ''}`;
                 const content = `触发内容: ${evt.trigger_content || ''}`;
+                const deliveries = Array.isArray(evt.deliveries) ? evt.deliveries : [];
+                const deliveryLine = deliveries.length > 0
+                    ? `推送结果: ${deliveries.map((item) => `${item.target}:${item.success ? 'success' : item.status || 'failed'}${item.detail ? `(${String(item.detail).replace(/\n/g, ' ')})` : ''}`).join(' | ')}`
+                    : '推送结果: -';
                 const ctx = Array.isArray(evt.context) ? evt.context : [];
                 const ctxLines = ctx.map((m) => {
                     const pos = (m.position || '').toLowerCase();
@@ -884,7 +1478,7 @@
                 if (ctxLines.length === 0) {
                     ctxLines.push('  - (无上下文)');
                 }
-                return `${title}\n${content}\n上下文:\n${ctxLines.join('\n')}\n`;
+                return `${title}\n${ruleLine}\n${content}\n${deliveryLine}\n上下文:\n${ctxLines.join('\n')}\n`;
             });
             pre.textContent = lines.join('\n');
         }
@@ -895,7 +1489,361 @@
         let currentTable = null;
         let currentPage = 0;
         let currentKeyword = '';
+        let globalSearchKeyword = '';
         const pageSize = 50;
+
+        function formatTimestamp(ts) {
+            if (!ts) return '-';
+            const dt = new Date(Number(ts) * 1000);
+            if (Number.isNaN(dt.getTime())) return '-';
+            return dt.toLocaleString();
+        }
+
+        function setChatlogFilters(chat, sender = '', title = '', msgType = '') {
+            document.getElementById('chatlog-talker').value = chat || '';
+            document.getElementById('chatlog-sender').value = sender || '';
+            document.getElementById('chatlog-msg-type').value = msgType || '';
+            const now = new Date();
+            const start = new Date(now.getFullYear(), now.getMonth(), 1);
+            const pad = (v) => String(v).padStart(2, '0');
+            const range = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}~${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+            if (!document.getElementById('chatlog-time').value.trim()) {
+                document.getElementById('chatlog-time').value = range;
+            }
+            switchTab('chatlog');
+            if (title) {
+                const result = document.getElementById('chatlog-result');
+                result.classList.remove('hidden');
+                result.innerHTML = `<div class="result-header"><strong>${escapeHtml(title)}</strong></div><div class="text-gray">已填入聊天条件，可直接点击“查询 / 导出”。</div>`;
+            }
+        }
+
+        function openDashboardChat(kind) {
+            const select = document.getElementById(`dashboard-${kind}-select`);
+            if (!select || !select.value) return;
+            const label = kind === 'group' ? '群聊' : '私聊';
+            setChatlogFilters(select.value, '', `${label}分析已跳转`);
+        }
+
+        function openDashboardGroupSender(sender) {
+            const select = document.getElementById('dashboard-group-select');
+            if (!select || !select.value) return;
+            setChatlogFilters(select.value, sender || '', `群成员 ${sender || ''} 已跳转`);
+        }
+
+        function openDashboardTypeFilter(kind, typeLabel) {
+            const select = document.getElementById(`dashboard-${kind}-select`);
+            if (!select || !select.value) return;
+            const msgType = dashboardMsgTypeMap[String(typeLabel || '').toLowerCase()] || '';
+            setChatlogFilters(select.value, '', `${kind === 'group' ? '群聊' : '私聊'} ${typeLabel} 类型已跳转`, msgType);
+        }
+
+        function getChartInstance(key, el) {
+            if (!el || typeof echarts === 'undefined') return null;
+            if (dashboardCharts[key]) {
+                dashboardCharts[key].dispose();
+            }
+            dashboardCharts[key] = echarts.init(el);
+            return dashboardCharts[key];
+        }
+
+        function renderDashboardCharts(kind, typeItems, hourItems, ratioItems) {
+            const typeEl = document.getElementById(`dashboard-${kind}-type-chart`);
+            const hourEl = document.getElementById(`dashboard-${kind}-hour-chart`);
+            const ratioEl = document.getElementById(`dashboard-${kind}-ratio-chart`);
+
+            if (typeof echarts === 'undefined') {
+                if (typeEl) typeEl.innerHTML = renderBarList(typeItems, { fillClass: kind === 'private' ? '' : 'pink' });
+                if (hourEl) hourEl.innerHTML = renderHourlyBars(hourItems);
+                if (ratioEl && kind === 'private') ratioEl.innerHTML = renderBarList(ratioItems, { fillClass: 'success' });
+                return;
+            }
+
+            const typeChart = getChartInstance(`${kind}-type`, typeEl);
+            if (typeChart) {
+                typeChart.setOption({
+                    animationDuration: 250,
+                    tooltip: { trigger: 'item' },
+                    series: [{
+                        type: 'pie',
+                        radius: ['42%', '72%'],
+                        label: { formatter: '{b}\n{d}%' },
+                        data: typeItems.map(item => ({ name: item.label, value: item.value }))
+                    }]
+                });
+                typeChart.off('click');
+                typeChart.on('click', params => openDashboardTypeFilter(kind, params.name));
+            }
+
+            const hourChart = getChartInstance(`${kind}-hour`, hourEl);
+            if (hourChart) {
+                hourChart.setOption({
+                    animationDuration: 250,
+                    tooltip: { trigger: 'axis' },
+                    grid: { left: 24, right: 12, top: 20, bottom: 28 },
+                    xAxis: { type: 'category', data: hourItems.map(item => `${item.hour}`), axisTick: { show: false } },
+                    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#e5e7eb' } } },
+                    series: [{
+                        type: 'bar',
+                        data: hourItems.map(item => item.count),
+                        itemStyle: { color: kind === 'group' ? '#f59e0b' : '#2563eb', borderRadius: [6, 6, 0, 0] }
+                    }]
+                });
+            }
+
+            if (ratioEl) {
+                if (kind === 'private') {
+                    const ratioChart = getChartInstance(`${kind}-ratio`, ratioEl);
+                    if (ratioChart) {
+                        ratioChart.setOption({
+                            animationDuration: 250,
+                            tooltip: { trigger: 'item' },
+                            series: [{
+                                type: 'pie',
+                                radius: ['45%', '72%'],
+                                label: { formatter: '{b}\n{d}%' },
+                                data: ratioItems.map(item => ({ name: item.label, value: item.value }))
+                            }]
+                        });
+                    }
+                } else {
+                    ratioEl.innerHTML = '';
+                }
+            }
+        }
+
+        function getDashboardSince(kind) {
+            const rangeSelect = document.getElementById(`dashboard-${kind}-range`);
+            const val = rangeSelect ? String(rangeSelect.value || 'all') : 'all';
+            if (val === 'all') return '';
+            const now = Math.floor(Date.now() / 1000);
+            if (val === '30d') return String(now - 30 * 24 * 3600);
+            if (val === '90d') return String(now - 90 * 24 * 3600);
+            return '';
+        }
+
+        function getRecentSessionRankings(kind, selectedChat) {
+            return dashboardSessions
+                .filter(item => item.chat_type === kind && item.username !== selectedChat)
+                .sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0))
+                .slice(0, 8)
+                .map(item => ({
+                    label: String(item.chat || item.username || ''),
+                    value: String(item.time || ''),
+                    username: String(item.username || '')
+                }));
+        }
+
+        function renderBarList(items, options = {}) {
+            if (!Array.isArray(items) || items.length === 0) {
+                return '<div class="analytics-empty">暂无数据</div>';
+            }
+            const max = Math.max(...items.map(item => Number(item.value || 0)), 1);
+            const fillClass = options.fillClass || '';
+            return `
+                <div class="bar-list">
+                    ${items.map(item => `
+                        <div class="bar-row">
+                            <span class="bar-label" title="${escapeHtml(item.label)}">${escapeHtml(item.label)}</span>
+                            <div class="bar-track"><div class="bar-fill ${fillClass}" style="width:${Math.max(6, (Number(item.value || 0) / max) * 100)}%"></div></div>
+                            <span class="bar-value">${Number(item.value || 0)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function renderHourlyBars(items) {
+            const list = Array.isArray(items) ? items : [];
+            if (list.length === 0) {
+                return '<div class="analytics-empty">暂无时段数据</div>';
+            }
+            const max = Math.max(...list.map(item => Number(item.count || 0)), 1);
+            return `
+                <div class="hour-bars">
+                    ${list.map(item => {
+                        const count = Number(item.count || 0);
+                        const height = max === 0 ? 2 : Math.max(2, (count / max) * 110);
+                        return `
+                            <div class="hour-bar-col" title="${item.hour}时: ${count}">
+                                <span class="hour-count">${count}</span>
+                                <div class="hour-bar" style="height:${height}px"></div>
+                                <span class="hour-label">${item.hour}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function renderDashboardStats(kind, data) {
+            const body = document.getElementById(`dashboard-${kind}-body`);
+            if (!body) return;
+            if (!data || typeof data !== 'object') {
+                body.innerHTML = '<div class="analytics-empty">暂无统计数据</div>';
+                return;
+            }
+
+            const typeItems = Array.isArray(data.by_type)
+                ? data.by_type.slice(0, 6).map(item => ({ label: String(item.type || '其他'), value: Number(item.count || 0) }))
+                : [];
+            const hourItems = Array.isArray(data.by_hour)
+                ? data.by_hour.map(item => ({ hour: Number(item.hour || 0), count: Number(item.count || 0) }))
+                : [];
+            const senderItems = Array.isArray(data.top_senders)
+                ? data.top_senders.slice(0, 8).map(item => ({ label: String(item.sender || '未知'), value: Number(item.count || 0) }))
+                : [];
+            const ratioItems = [
+                { label: '发送', value: Number(data.sent_count || 0) },
+                { label: '接收', value: Number(data.received_count || 0) }
+            ].filter(item => item.value > 0);
+            const selectedChat = String(data.username || '');
+            const recentRankings = getRecentSessionRankings(kind, selectedChat);
+            const otherGroupRankings = getRecentSessionRankings('group', selectedChat);
+
+            const kpiThirdValue = data.chat_type === 'group'
+                ? senderItems.length
+                : Math.round((Number(data.sent_count || 0) / Math.max(Number(data.total || 0), 1)) * 100);
+            const kpiThirdLabel = data.chat_type === 'group' ? '活跃成员数' : '发送占比';
+
+            body.innerHTML = `
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <span class="kpi-value">${Number(data.total || 0)}</span>
+                        <span class="kpi-label">消息总数</span>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-value">${Number(data.active_days || 0)}</span>
+                        <span class="kpi-label">活跃天数</span>
+                    </div>
+                    <div class="kpi-card">
+                        <span class="kpi-value">${kpiThirdValue}${data.chat_type === 'group' ? '' : '%'}</span>
+                        <span class="kpi-label">${kpiThirdLabel}</span>
+                    </div>
+                </div>
+                <div class="range-text">数据范围：${escapeHtml(formatTimestamp(data.first_message_time))} - ${escapeHtml(formatTimestamp(data.last_message_time))}</div>
+                ${kind === 'private' ? `
+                    <div class="analytics-section">
+                        <h4>发送 / 接收比例</h4>
+                        <div id="dashboard-private-ratio-chart" class="chart-container"></div>
+                    </div>
+                    <div class="analytics-section">
+                        <h4>最近活跃联系人</h4>
+                        <div class="bar-list">
+                            ${recentRankings.length ? recentRankings.map(item => `
+                                <div class="bar-row" style="grid-template-columns: 120px 1fr 80px;">
+                                    <button class="analytics-link-btn" style="text-align:left; padding:4px 8px;" onclick="setChatlogFilters(${JSON.stringify(item.username)}, '', '私聊 ${escapeHtml(item.label)} 已跳转')">${escapeHtml(item.label)}</button>
+                                    <div class="bar-track"><div class="bar-fill success" style="width:100%"></div></div>
+                                    <span class="bar-value">${escapeHtml(item.value)}</span>
+                                </div>
+                            `).join('') : '<div class="analytics-empty">暂无其他活跃联系人</div>'}
+                        </div>
+                    </div>
+                ` : `
+                    <div class="analytics-section">
+                        <h4>群聊发言排行</h4>
+                        <div class="bar-list">
+                            ${senderItems.length ? senderItems.map(item => `
+                                <div class="bar-row">
+                                    <button class="analytics-link-btn" style="text-align:left; padding:4px 8px;" onclick="openDashboardGroupSender(${JSON.stringify(String(item.label || ''))})" title="查看 ${escapeHtml(String(item.label || ''))} 的群聊消息">${escapeHtml(String(item.label || ''))}</button>
+                                    <div class="bar-track"><div class="bar-fill warning" style="width:${Math.max(6, (Number(item.value || 0) / Math.max(...senderItems.map(x => Number(x.value || 0)), 1)) * 100)}%"></div></div>
+                                    <span class="bar-value">${Number(item.value || 0)}</span>
+                                </div>
+                            `).join('') : '<div class="analytics-empty">暂无排行数据</div>'}
+                        </div>
+                    </div>
+                    <div class="analytics-section">
+                        <h4>最近活跃群聊</h4>
+                        <div class="bar-list">
+                            ${otherGroupRankings.length ? otherGroupRankings.map(item => `
+                                <div class="bar-row" style="grid-template-columns: 120px 1fr 80px;">
+                                    <button class="analytics-link-btn" style="text-align:left; padding:4px 8px;" onclick="setChatlogFilters(${JSON.stringify(item.username)}, '', '群聊 ${escapeHtml(item.label)} 已跳转')">${escapeHtml(item.label)}</button>
+                                    <div class="bar-track"><div class="bar-fill warning" style="width:100%"></div></div>
+                                    <span class="bar-value">${escapeHtml(item.value)}</span>
+                                </div>
+                            `).join('') : '<div class="analytics-empty">暂无其他活跃群聊</div>'}
+                        </div>
+                    </div>
+                `}
+                <div class="analytics-section">
+                    <h4>消息类型分布</h4>
+                    <div id="dashboard-${kind}-type-chart" class="chart-container"></div>
+                    <div class="range-text">点击扇区可按消息类型跳转到消息检索。</div>
+                </div>
+                <div class="analytics-section">
+                    <h4>${kind === 'private' ? '每小时消息分布' : '群聊活跃时段'}</h4>
+                    <div id="dashboard-${kind}-hour-chart" class="chart-container wide"></div>
+                </div>
+            `;
+            renderDashboardCharts(kind, typeItems, hourItems, ratioItems);
+        }
+
+        function buildSessionOptions(kind, select, preserveValue = '') {
+            const filtered = dashboardSessions.filter(item => item.chat_type === kind);
+            if (!filtered.length) {
+                select.innerHTML = '<option value="">暂无会话</option>';
+                return '';
+            }
+            const nextValue = filtered.some(item => item.username === preserveValue) ? preserveValue : filtered[0].username;
+            select.innerHTML = filtered.map(item => {
+                const label = `${item.chat || item.username} · ${item.time || ''}`;
+                return `<option value="${escapeHtml(item.username)}">${escapeHtml(label)}</option>`;
+            }).join('');
+            select.value = nextValue;
+            return nextValue;
+        }
+
+        async function loadDashboardAnalytics(force = false) {
+            try {
+                if (force || dashboardSessions.length === 0) {
+                    const res = await fetch('/api/v1/sessions?limit=500&format=json');
+                    if (!res.ok) throw new Error(await res.text());
+                    const data = await res.json();
+                    dashboardSessions = Array.isArray(data.sessions) ? data.sessions : [];
+                }
+                const privateSelect = document.getElementById('dashboard-private-select');
+                const groupSelect = document.getElementById('dashboard-group-select');
+                const privateValue = buildSessionOptions('private', privateSelect, privateSelect.value);
+                const groupValue = buildSessionOptions('group', groupSelect, groupSelect.value);
+                if (privateValue) loadDashboardStats('private');
+                else document.getElementById('dashboard-private-body').innerHTML = '<div class="analytics-empty">暂无私聊会话</div>';
+                if (groupValue) loadDashboardStats('group');
+                else document.getElementById('dashboard-group-body').innerHTML = '<div class="analytics-empty">暂无群聊会话</div>';
+            } catch (e) {
+                document.getElementById('dashboard-private-body').innerHTML = `<div class="analytics-empty">加载失败: ${escapeHtml(e.message)}</div>`;
+                document.getElementById('dashboard-group-body').innerHTML = `<div class="analytics-empty">加载失败: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        async function loadDashboardStats(kind, forceReloadSessions = false) {
+            if (forceReloadSessions) {
+                await loadDashboardAnalytics(true);
+                return;
+            }
+            const select = document.getElementById(`dashboard-${kind}-select`);
+            const body = document.getElementById(`dashboard-${kind}-body`);
+            if (!select || !body) return;
+            const chat = (select.value || '').trim();
+            if (!chat) {
+                body.innerHTML = `<div class="analytics-empty">暂无${kind === 'private' ? '私聊' : '群聊'}会话</div>`;
+                return;
+            }
+            body.innerHTML = '<div class="analytics-empty">统计中...</div>';
+            try {
+                const since = getDashboardSince(kind);
+                const params = new URLSearchParams();
+                params.set('format', 'json');
+                params.set('chat', chat);
+                if (since) params.set('since', since);
+                const url = `/api/v1/stats?${params.toString()}`;
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                renderDashboardStats(kind, data);
+            } catch (e) {
+                body.innerHTML = `<div class="analytics-empty">加载失败: ${escapeHtml(e.message)}</div>`;
+            }
+        }
         
         // Modal View Switching
         function switchModalView(view) {
@@ -982,6 +1930,113 @@
                 container.innerHTML = html;
             } catch (e) {
                 container.innerHTML = `<div class="text-danger">加载失败: ${e.message}</div>`;
+            }
+        }
+
+        async function runGlobalSearch() {
+            const keyword = document.getElementById('global-search-keyword').value.trim();
+            const limit = document.getElementById('global-search-limit').value.trim() || '100';
+            const mode = document.getElementById('global-search-mode').value || 'quick';
+            const box = document.getElementById('global-search-result');
+
+            if (!keyword) {
+                alert('请输入关键词');
+                return;
+            }
+
+            globalSearchKeyword = keyword;
+            box.classList.remove('hidden');
+            box.innerHTML = '<div class="loading">搜索中...</div>';
+
+            try {
+                const params = new URLSearchParams();
+                params.append('keyword', keyword);
+                params.append('limit', limit);
+                params.append('mode', mode);
+                const url = `/api/v1/db/search?${params.toString()}`;
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                renderGlobalSearchResult(url, data);
+            } catch (e) {
+                box.innerHTML = `<div class="text-danger">搜索失败: ${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function renderGlobalSearchResult(url, data) {
+            const box = document.getElementById('global-search-result');
+            const items = Array.isArray(data.items) ? data.items : [];
+
+            if (items.length === 0) {
+                box.innerHTML = `
+                    <div class="result-header">
+                        <span class="url-display">${url}</span>
+                    </div>
+                    <div class="text-gray">未找到匹配结果。</div>
+                `;
+                return;
+            }
+
+            let rows = '';
+            items.forEach((item, index) => {
+                const rowId = item.row_id === null || item.row_id === undefined ? '-' : escapeHtml(item.row_id);
+                const preview = escapeHtml(item.preview || '');
+                const group = String(item.group || '');
+                const file = String(item.file || '');
+                const table = String(item.table || '');
+                rows += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${escapeHtml(group)}</td>
+                        <td class="cell-monospace">${escapeHtml(item.db_name || '')}</td>
+                        <td class="cell-monospace">${escapeHtml(table)}</td>
+                        <td class="cell-monospace">${escapeHtml(item.column || '')}</td>
+                        <td class="cell-monospace">${rowId}</td>
+                        <td class="global-search-preview">${preview}</td>
+                        <td>
+                            <button class="btn btn-secondary btn-sm" onclick="openSearchResult(${JSON.stringify(group)}, ${JSON.stringify(file)}, ${JSON.stringify(table)})">查看</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            box.innerHTML = `
+                <div class="result-header">
+                    <span class="url-display">${url}</span>
+                    <button class="btn btn-secondary text-sm" onclick="copyText(${JSON.stringify(url)})">复制URL</button>
+                </div>
+                <div class="global-search-summary">
+                    <strong>共 ${items.length} 条命中 / 模式：${escapeHtml(data.mode || 'quick')}</strong>
+                    <span class="text-gray">${data.mode === 'deep' ? '深度模式会分批扫描行并尝试解码压缩/二进制消息内容，速度较慢但覆盖更全。' : '快速模式按数据库、表逐步扫描并限制单表返回量，适合日常定位。'}</span>
+                </div>
+                <div class="table-scroll">
+                    <table id="global-search-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>数据库组</th>
+                                <th>数据库文件</th>
+                                <th>表</th>
+                                <th>列</th>
+                                <th>行</th>
+                                <th>命中内容</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        async function openSearchResult(group, file, table) {
+            await openDBViewer(encodeURIComponent(group), encodeURIComponent(file));
+            await loadTableData(encodeURIComponent(table));
+            if (globalSearchKeyword) {
+                document.getElementById('data-search-input').value = globalSearchKeyword;
+                currentKeyword = globalSearchKeyword;
+                currentPage = 0;
+                await fetchTableData();
             }
         }
 
@@ -1302,6 +2357,9 @@
                     
                     const limit = document.getElementById('chatlog-limit').value;
                     if(limit) params.append('limit', limit);
+
+                    const msgType = document.getElementById('chatlog-msg-type').value;
+                    if(msgType) params.append('msg_type', msgType);
                     
                     format = document.getElementById('chatlog-format').value;
                 }

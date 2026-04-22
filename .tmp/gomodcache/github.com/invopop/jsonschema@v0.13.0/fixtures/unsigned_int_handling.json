@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/unsigned-int-handler",
+  "$ref": "#/$defs/UnsignedIntHandler",
+  "$defs": {
+    "UnsignedIntHandler": {
+      "properties": {
+        "min_len": {
+          "items": {
+            "type": "string",
+            "minLength": 0
+          },
+          "type": "array"
+        },
+        "max_len": {
+          "items": {
+            "type": "string",
+            "maxLength": 0
+          },
+          "type": "array"
+        },
+        "min_items": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "minItems": 0
+        },
+        "max_items": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "maxItems": 0
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "min_len",
+        "max_len",
+        "min_items",
+        "max_items"
+      ]
+    }
+  }
+}

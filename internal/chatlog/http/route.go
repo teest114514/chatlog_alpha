@@ -22,6 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/sjzar/chatlog/internal/chatlog/conf"
+	"github.com/sjzar/chatlog/internal/chatlog/hermespush"
 	chatwechat "github.com/sjzar/chatlog/internal/chatlog/wechat"
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
@@ -59,6 +60,8 @@ func (s *Service) initBaseRouter() {
 	s.router.GET("/api/v1/hook/status", s.handleHookStatus)
 	s.router.GET("/api/v1/hook/events", s.handleHookEvents)
 	s.router.POST("/api/v1/hook/events/clear", s.handleHookEventsClear)
+	s.router.GET("/api/v1/hook/hermes/weixin", s.handleHookHermesWeixinGet)
+	s.router.POST("/api/v1/hook/hermes/weixin", s.handleHookHermesWeixinSet)
 	s.router.GET("/api/v1/hook/stream", s.handleHookStream)
 
 	s.router.NoRoute(s.NoRoute)
@@ -86,9 +89,11 @@ func (s *Service) initAPIRouter() {
 		api.GET("/sns_notifications", s.handleSNSNotificationsCompat)
 		api.GET("/sns_feed", s.handleSNSFeedCompat)
 		api.GET("/sns_search", s.handleSNSSearchCompat)
+		api.GET("/sns/media/proxy", s.handleSNSMediaProxy)
 		api.GET("/contacts", s.handleContactsCompat)
 		api.GET("/chatrooms", s.handleChatRoomsCompat)
 		api.GET("/db", s.handleGetDBs)
+		api.GET("/db/search", s.handleSearchAllDBs)
 		api.GET("/db/tables", s.handleGetDBTables)
 		api.GET("/db/data", s.handleGetDBTableData)
 		api.GET("/db/query", s.handleExecuteSQL)
@@ -106,20 +111,28 @@ func (s *Service) handleHookConfigGet(c *gin.Context) {
 		cfg = &conf.MessageHook{}
 	}
 	writeByFormat(c, gin.H{
-		"keywords":     strings.TrimSpace(cfg.Keywords),
-		"notify_mode":  strings.TrimSpace(cfg.NotifyMode),
-		"post_url":     strings.TrimSpace(cfg.PostURL),
-		"before_count": cfg.BeforeCount,
-		"after_count":  cfg.AfterCount,
+		"keywords":          strings.TrimSpace(cfg.Keywords),
+		"notify_mode":       conf.CanonicalHookNotifyMode(cfg.NotifyMode),
+		"post_url":          strings.TrimSpace(cfg.PostURL),
+		"before_count":      cfg.BeforeCount,
+		"after_count":       cfg.AfterCount,
+		"weixin_interval":   maxHookWeixinInterval(cfg.WeixinInterval),
+		"forward_all":       cfg.ForwardAll,
+		"forward_contacts":  strings.TrimSpace(cfg.ForwardContacts),
+		"forward_chatrooms": strings.TrimSpace(cfg.ForwardChatRooms),
 	}, c.Query("format"))
 }
 
 type hookConfigReq struct {
-	Keywords    string `json:"keywords"`
-	NotifyMode  string `json:"notify_mode"`
-	PostURL     string `json:"post_url"`
-	BeforeCount int    `json:"before_count"`
-	AfterCount  int    `json:"after_count"`
+	Keywords         string `json:"keywords"`
+	NotifyMode       string `json:"notify_mode"`
+	PostURL          string `json:"post_url"`
+	BeforeCount      int    `json:"before_count"`
+	AfterCount       int    `json:"after_count"`
+	WeixinInterval   int    `json:"weixin_interval"`
+	ForwardAll       bool   `json:"forward_all"`
+	ForwardContacts  string `json:"forward_contacts"`
+	ForwardChatRooms string `json:"forward_chatrooms"`
 }
 
 func (s *Service) handleHookConfigSet(c *gin.Context) {
@@ -129,22 +142,118 @@ func (s *Service) handleHookConfigSet(c *gin.Context) {
 		return
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(req.NotifyMode))
-	switch mode {
-	case "", conf.HookNotifyMCP:
-		mode = conf.HookNotifyMCP
-	case conf.HookNotifyPost, conf.HookNotifyBoth:
-	default:
+	if _, ok := conf.ParseHookNotifyTargets(req.NotifyMode); !ok {
 		errors.Err(c, errors.InvalidArg("notify_mode"))
 		return
 	}
+	if req.BeforeCount < 0 {
+		errors.Err(c, errors.InvalidArg("before_count"))
+		return
+	}
+	if req.AfterCount < 0 {
+		errors.Err(c, errors.InvalidArg("after_count"))
+		return
+	}
+	if req.WeixinInterval <= 0 {
+		req.WeixinInterval = 5
+	}
+	mode := conf.CanonicalHookNotifyMode(req.NotifyMode)
+	targets, _ := conf.ParseHookNotifyTargets(mode)
+	if targets.Weixin {
+		install := hermespush.DetectInstallation()
+		if !install.Installed {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Hermes agent 未安装，无法启用 weixin 推送"})
+			return
+		}
+		if _, err := hermespush.DiscoverWeixinConfig(); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Hermes agent 未完成微信渠道配置: " + err.Error()})
+			return
+		}
+	}
+	keywords := strings.TrimSpace(req.Keywords)
+	forwardContacts := strings.TrimSpace(req.ForwardContacts)
+	forwardChatRooms := strings.TrimSpace(req.ForwardChatRooms)
+	if req.ForwardAll {
+		keywords = ""
+		forwardContacts = ""
+		forwardChatRooms = ""
+	}
 
-	s.conf.SetHookKeywords(strings.TrimSpace(req.Keywords))
+	s.conf.SetHookKeywords(keywords)
 	s.conf.SetHookNotifyMode(mode)
 	s.conf.SetHookPostURL(strings.TrimSpace(req.PostURL))
 	s.conf.SetHookBeforeCount(req.BeforeCount)
 	s.conf.SetHookAfterCount(req.AfterCount)
+	s.conf.SetHookWeixinInterval(req.WeixinInterval)
+	s.conf.SetHookForwardAll(req.ForwardAll)
+	s.conf.SetHookForwardContacts(forwardContacts)
+	s.conf.SetHookForwardChatRooms(forwardChatRooms)
 	s.handleHookConfigGet(c)
+}
+
+type hookHermesWeixinReq struct {
+	HermesHome      string `json:"hermes_home"`
+	AccountID       string `json:"account_id"`
+	Token           string `json:"token"`
+	BaseURL         string `json:"base_url"`
+	CdnBaseURL      string `json:"cdn_base_url"`
+	HomeChannel     string `json:"home_channel"`
+	HomeChannelName string `json:"home_channel_name"`
+}
+
+func (s *Service) handleHookHermesWeixinGet(c *gin.Context) {
+	mode := ""
+	if cfg := s.conf.GetMessageHook(); cfg != nil {
+		mode = conf.CanonicalHookNotifyMode(cfg.NotifyMode)
+	}
+	status := s.getHermesWeixinStatus(mode)
+	c.JSON(http.StatusOK, status)
+}
+
+func (s *Service) handleHookHermesWeixinSet(c *gin.Context) {
+	var req hookHermesWeixinReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.Err(c, errors.InvalidArg("body"))
+		return
+	}
+	install := hermespush.DetectInstallation()
+	if !install.Installed {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Hermes agent 未安装，无法保存微信渠道配置"})
+		return
+	}
+	if _, err := hermespush.DiscoverWeixinConfig(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "当前无法读取 Hermes Weixin 配置，已禁止编辑: " + err.Error()})
+		return
+	}
+	cfg, err := hermespush.SaveWeixinConfig(hermespush.WeixinConfig{
+		HermesHome:      strings.TrimSpace(req.HermesHome),
+		AccountID:       strings.TrimSpace(req.AccountID),
+		Token:           strings.TrimSpace(req.Token),
+		BaseURL:         strings.TrimSpace(req.BaseURL),
+		CdnBaseURL:      strings.TrimSpace(req.CdnBaseURL),
+		HomeChannel:     strings.TrimSpace(req.HomeChannel),
+		HomeChannelName: strings.TrimSpace(req.HomeChannelName),
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	status := s.getHermesWeixinStatus("")
+	status.Available = true
+	status.Editable = cfg.EnvFile != "" || cfg.ConfigFile != "" || cfg.AccountFile != ""
+	status.HermesHome = cfg.HermesHome
+	status.EnvFile = cfg.EnvFile
+	status.ConfigFile = cfg.ConfigFile
+	status.ChannelFile = cfg.ChannelFile
+	status.AccountFile = cfg.AccountFile
+	status.AccountID = cfg.AccountID
+	status.Token = cfg.Token
+	status.BaseURL = cfg.BaseURL
+	status.CdnBaseURL = cfg.CdnBaseURL
+	status.HomeChannel = cfg.HomeChannel
+	status.HomeChannelName = cfg.HomeChannelName
+	status.HomeChannelFrom = cfg.HomeChannelFrom
+	c.JSON(http.StatusOK, status)
 }
 
 func splitHookKeywords(raw string) []string {
@@ -179,18 +288,26 @@ func (s *Service) handleHookStatus(c *gin.Context) {
 	postURL := ""
 	before := 5
 	after := 5
+	weixinInterval := 5
 	keywordsRaw := ""
+	forwardAll := false
+	forwardContacts := ""
+	forwardChatRooms := ""
 	if cfg != nil {
 		keywordsRaw = strings.TrimSpace(cfg.Keywords)
 		keywords = splitHookKeywords(cfg.Keywords)
-		mode = strings.TrimSpace(cfg.NotifyMode)
+		mode = conf.CanonicalHookNotifyMode(cfg.NotifyMode)
 		postURL = strings.TrimSpace(cfg.PostURL)
-		if cfg.BeforeCount > 0 {
+		if cfg.BeforeCount >= 0 {
 			before = cfg.BeforeCount
 		}
-		if cfg.AfterCount > 0 {
+		if cfg.AfterCount >= 0 {
 			after = cfg.AfterCount
 		}
+		weixinInterval = maxHookWeixinInterval(cfg.WeixinInterval)
+		forwardAll = cfg.ForwardAll
+		forwardContacts = strings.TrimSpace(cfg.ForwardContacts)
+		forwardChatRooms = strings.TrimSpace(cfg.ForwardChatRooms)
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"running":                 running,
@@ -201,12 +318,50 @@ func (s *Service) handleHookStatus(c *gin.Context) {
 		"post_url":                postURL,
 		"before_count":            before,
 		"after_count":             after,
+		"weixin_interval":         weixinInterval,
+		"forward_all":             forwardAll,
+		"forward_contacts":        splitHookTargets(forwardContacts),
+		"forward_contacts_raw":    forwardContacts,
+		"forward_chatrooms":       splitHookTargets(forwardChatRooms),
+		"forward_chatrooms_raw":   forwardChatRooms,
 		"mcp_notification_method": "notifications/chatlog/keyword_hit",
 		"sse_clients":             subscribers,
 		"event_count":             eventCount,
 		"last_event_at":           lastEventAt,
 		"events_store_file":       s.hookEventsStorePath(),
+		"weixin":                  s.getHermesWeixinStatus(mode),
 	})
+}
+
+func maxHookWeixinInterval(v int) int {
+	if v <= 0 {
+		return 5
+	}
+	return v
+}
+
+func splitHookTargets(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	replacer := strings.NewReplacer("\n", ",", "，", ",", ";", ",", "|", ",")
+	parts := strings.Split(replacer.Replace(raw), ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key := strings.ToLower(part)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, part)
+	}
+	return out
 }
 
 func (s *Service) handleHookEvents(c *gin.Context) {
@@ -672,6 +827,19 @@ func (s *Service) handleSessionsCompat(c *gin.Context) {
 			chatType = "group"
 		}
 		chat := sess.NickName
+		if isGroup {
+			if room, _ := s.db.GetChatRoom(sess.UserName); room != nil {
+				if display := strings.TrimSpace(room.DisplayName()); display != "" {
+					chat = display
+				}
+			}
+		} else {
+			if contact, _ := s.db.GetContact(sess.UserName); contact != nil {
+				if display := strings.TrimSpace(contact.DisplayName()); display != "" {
+					chat = display
+				}
+			}
+		}
 		if chat == "" {
 			chat = sess.UserName
 		}
@@ -1081,12 +1249,31 @@ func (s *Service) handleStatsCompat(c *gin.Context) {
 	}
 	byType := map[string]int64{}
 	topSenders := map[string]int64{}
+	sentCount := 0
+	receivedCount := 0
+	activeDaysSet := map[string]struct{}{}
+	var firstMessageTime int64
+	var lastMessageTime int64
 	byHour := make([]gin.H, 24)
 	for i := 0; i < 24; i++ {
 		byHour[i] = gin.H{"hour": i, "count": 0}
 	}
 	for _, m := range msgs {
 		byType[formatMessageType(m.Type)]++
+		if m.IsSelf {
+			sentCount++
+		} else {
+			receivedCount++
+		}
+		dayKey := m.Time.Format("2006-01-02")
+		activeDaysSet[dayKey] = struct{}{}
+		ts := m.Time.Unix()
+		if firstMessageTime == 0 || ts < firstMessageTime {
+			firstMessageTime = ts
+		}
+		if ts > lastMessageTime {
+			lastMessageTime = ts
+		}
 		if m.IsChatRoom {
 			sender := m.SenderName
 			if sender == "" {
@@ -1116,19 +1303,37 @@ func (s *Service) handleStatsCompat(c *gin.Context) {
 	if len(msgs) > 0 {
 		username = msgs[0].Talker
 		chatType = classifyChatType(username)
-		if msgs[0].TalkerName != "" {
+		if chatType == "group" {
+			if room, _ := s.db.GetChatRoom(username); room != nil {
+				if name := strings.TrimSpace(room.DisplayName()); name != "" {
+					display = name
+				}
+			}
+		} else {
+			if contact, _ := s.db.GetContact(username); contact != nil {
+				if name := strings.TrimSpace(contact.DisplayName()); name != "" {
+					display = name
+				}
+			}
+		}
+		if display == chat && msgs[0].TalkerName != "" {
 			display = msgs[0].TalkerName
 		}
 	}
 	writeByFormat(c, gin.H{
-		"chat":        display,
-		"username":    username,
-		"is_group":    chatType == "group",
-		"chat_type":   chatType,
-		"total":       len(msgs),
-		"by_type":     typeRows,
-		"top_senders": senderRows,
-		"by_hour":     byHour,
+		"chat":               display,
+		"username":           username,
+		"is_group":           chatType == "group",
+		"chat_type":          chatType,
+		"total":              len(msgs),
+		"sent_count":         sentCount,
+		"received_count":     receivedCount,
+		"active_days":        len(activeDaysSet),
+		"first_message_time": firstMessageTime,
+		"last_message_time":  lastMessageTime,
+		"by_type":            typeRows,
+		"top_senders":        senderRows,
+		"by_hour":            byHour,
 	}, format)
 }
 
@@ -1288,12 +1493,22 @@ func (s *Service) handleSNSFeedCompat(c *gin.Context) {
 	for _, r := range rows {
 		tid := toInt64(r["tid"])
 		content := toString(r["content"])
+		post, parseErr := model.ParseSNSContent(content)
+		if parseErr != nil || post == nil {
+			post = &model.SNSPost{XMLContent: content}
+		}
 		author := toString(r["user_name"])
 		if author == "" {
 			author = extractXMLTagValue(content, "username")
 		}
 		desc := extractXMLTagValue(content, "contentDesc")
+		if post.ContentDesc != "" {
+			desc = post.ContentDesc
+		}
 		cts := toInt64(extractXMLTagValue(content, "createTime"))
+		if post.CreateTime > 0 {
+			cts = post.CreateTime
+		}
 		if cts == 0 {
 			cts = tid / 1000000
 		}
@@ -1316,13 +1531,18 @@ func (s *Service) handleSNSFeedCompat(c *gin.Context) {
 			}
 		}
 		out = append(out, gin.H{
-			"id":          tid,
-			"timestamp":   cts,
-			"time":        tm.Format("2006-01-02 15:04"),
-			"username":    author,
-			"display":     author,
-			"content":     desc,
-			"raw_content": content,
+			"id":           tid,
+			"timestamp":    cts,
+			"time":         tm.Format("2006-01-02 15:04"),
+			"username":     author,
+			"display":      author,
+			"content":      desc,
+			"raw_content":  content,
+			"content_type": post.ContentType,
+			"location":     post.Location,
+			"media_list":   s.enrichSNSPostMedia(c, post),
+			"article":      post.Article,
+			"finder_feed":  post.FinderFeed,
 		})
 		if len(out) >= limit {
 			break
@@ -1357,7 +1577,14 @@ func (s *Service) handleSNSSearchCompat(c *gin.Context) {
 	for _, r := range rows {
 		tid := toInt64(r["tid"])
 		content := toString(r["content"])
+		post, parseErr := model.ParseSNSContent(content)
+		if parseErr != nil || post == nil {
+			post = &model.SNSPost{XMLContent: content}
+		}
 		desc := extractXMLTagValue(content, "contentDesc")
+		if post.ContentDesc != "" {
+			desc = post.ContentDesc
+		}
 		if !strings.Contains(strings.ToLower(desc), strings.ToLower(keyword)) {
 			continue
 		}
@@ -1366,6 +1593,9 @@ func (s *Service) handleSNSSearchCompat(c *gin.Context) {
 			author = extractXMLTagValue(content, "username")
 		}
 		cts := toInt64(extractXMLTagValue(content, "createTime"))
+		if post.CreateTime > 0 {
+			cts = post.CreateTime
+		}
 		if cts == 0 {
 			cts = tid / 1000000
 		}
@@ -1382,12 +1612,17 @@ func (s *Service) handleSNSSearchCompat(c *gin.Context) {
 			continue
 		}
 		out = append(out, gin.H{
-			"id":          tid,
-			"timestamp":   cts,
-			"time":        tm.Format("2006-01-02 15:04"),
-			"username":    author,
-			"content":     desc,
-			"raw_content": content,
+			"id":           tid,
+			"timestamp":    cts,
+			"time":         tm.Format("2006-01-02 15:04"),
+			"username":     author,
+			"content":      desc,
+			"raw_content":  content,
+			"content_type": post.ContentType,
+			"location":     post.Location,
+			"media_list":   s.enrichSNSPostMedia(c, post),
+			"article":      post.Article,
+			"finder_feed":  post.FinderFeed,
 		})
 		if len(out) >= limit {
 			break
@@ -2101,6 +2336,36 @@ func (s *Service) handleGetDBs(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, dbs)
+}
+
+func (s *Service) handleSearchAllDBs(c *gin.Context) {
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	if keyword == "" {
+		errors.Err(c, errors.InvalidArg("keyword"))
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	deep := strings.EqualFold(strings.TrimSpace(c.DefaultQuery("mode", "quick")), "deep")
+
+	items, err := s.db.SearchAll(keyword, limit, deep)
+	if err != nil {
+		errors.Err(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"keyword": keyword,
+		"mode":    map[bool]string{true: "deep", false: "quick"}[deep],
+		"total":   len(items),
+		"items":   items,
+	})
 }
 
 func (s *Service) handleGetDBTables(c *gin.Context) {

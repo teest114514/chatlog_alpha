@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/examples/user",
+  "$ref": "#/$defs/User",
+  "$defs": {
+    "NamedPets": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Pet"
+      },
+      "type": "object",
+      "description": "NamedPets is a map of animal names to pets."
+    },
+    "Pet": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the animal."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "description": "Pet defines the user's fury friend."
+    },
+    "Pets": {
+      "items": {
+        "$ref": "#/$defs/Pet"
+      },
+      "type": "array",
+      "description": "Pets is a collection of Pet objects."
+    },
+    "Plant": {
+      "properties": {
+        "variant": {
+          "type": "string",
+          "title": "Variant",
+          "description": "This comment will be used"
+        },
+        "multicellular": {
+          "type": "boolean",
+          "title": "Multicellular",
+          "description": "Multicellular is true if the plant is multicellular"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "variant"
+      ],
+      "description": "Plant represents the plants the user might have and serves as a test\nof structs inside a `type` set."
+    },
+    "User": {
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Unique sequential identifier."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": ".*",
+          "title": "the name",
+          "description": "this is a property",
+          "default": "alex",
+          "examples": [
+            "joe",
+            "lucy"
+          ]
+        },
+        "friends": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array",
+          "description": "list of IDs, omitted when empty"
+        },
+        "tags": {
+          "type": "object"
+        },
+        "pets": {
+          "$ref": "#/$defs/Pets",
+          "description": "An array of pets the user cares for."
+        },
+        "named_pets": {
+          "$ref": "#/$defs/NamedPets",
+          "description": "Set of animal names to pets"
+        },
+        "plants": {
+          "items": {
+            "$ref": "#/$defs/Plant"
+          },
+          "type": "array",
+          "title": "Plants",
+          "description": "Set of plants that the user likes"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "pets",
+        "named_pets",
+        "plants"
+      ],
+      "description": "User is used as a base to provide tests for comments.\nDon't forget to checkout the nested path."
+    }
+  }
+}

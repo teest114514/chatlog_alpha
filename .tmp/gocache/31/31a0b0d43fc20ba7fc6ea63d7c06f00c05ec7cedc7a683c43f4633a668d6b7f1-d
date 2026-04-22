@@ -1,0 +1,4 @@
+./conf.go
+./message_hook.go
+./server.go
+./tui.go

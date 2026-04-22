@@ -1,0 +1,7 @@
+./hermes_weixin.go
+./mcp.go
+./middleware.go
+./route.go
+./service.go
+./sns_media.go
+./sns_wasm_assets.go

@@ -1,25 +1,45 @@
 package wcdb
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
 	"github.com/sjzar/chatlog/internal/wechatdb/wcdbapi"
 	"github.com/sjzar/chatlog/pkg/util"
+	"github.com/sjzar/chatlog/pkg/util/zstd"
 )
 
 type DataSource struct {
 	dataDir string
 	client  *wcdbapi.Client
+
+	searchSchemaMu sync.RWMutex
+	searchSchema   map[string][]searchTableMeta
+}
+
+type searchTableMeta struct {
+	Name          string
+	Columns       []string
+	AllColumns    []searchColumnMeta
+	DeepCandidate []searchColumnMeta
+}
+
+type searchColumnMeta struct {
+	Name string
+	Type string
 }
 
 func New(dataDir, dataKey string) (*DataSource, error) {
@@ -31,8 +51,9 @@ func New(dataDir, dataKey string) (*DataSource, error) {
 		return nil, err
 	}
 	return &DataSource{
-		dataDir: c.DataDir(),
-		client:  c,
+		dataDir:      c.DataDir(),
+		client:       c,
+		searchSchema: make(map[string][]searchTableMeta),
 	}, nil
 }
 
@@ -537,6 +558,410 @@ func (ds *DataSource) GetTableData(group, file, table string, limit, offset int,
 func (ds *DataSource) ExecuteSQL(group, file, query string) ([]map[string]interface{}, error) {
 	group = normalizeGroupKind(group)
 	return ds.client.Query(group, file, query)
+}
+
+func (ds *DataSource) SearchAll(keyword string, limit int, deep bool) ([]map[string]interface{}, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return nil, fmt.Errorf("keyword is empty")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	dbs, err := ds.GetDBs()
+	if err != nil {
+		return nil, err
+	}
+
+	groups := make([]string, 0, len(dbs))
+	for group, files := range dbs {
+		if len(files) == 0 {
+			continue
+		}
+		groups = append(groups, group)
+	}
+	sort.Strings(groups)
+
+	results := make([]map[string]interface{}, 0, minInt(limit, 64))
+	for _, group := range groups {
+		files := append([]string(nil), dbs[group]...)
+		sort.Strings(files)
+		for _, file := range files {
+			tables, err := ds.getSearchSchema(group, file)
+			if err != nil {
+				continue
+			}
+			for _, table := range tables {
+				remaining := limit - len(results)
+				if remaining <= 0 {
+					return results, nil
+				}
+				var hits []map[string]interface{}
+				var err error
+				if deep {
+					hits, err = ds.deepSearchTable(group, file, table, keyword, remaining)
+				} else {
+					hits, err = ds.searchTable(group, file, table, keyword, minInt(remaining, 5))
+				}
+				if err != nil {
+					continue
+				}
+				for _, hit := range hits {
+					results = append(results, hit)
+					if len(results) >= limit {
+						return results, nil
+					}
+				}
+			}
+		}
+	}
+
+	return results, nil
+}
+
+func (ds *DataSource) getSearchSchema(group, file string) ([]searchTableMeta, error) {
+	group = normalizeGroupKind(group)
+	cacheKey := group + "::" + file
+
+	ds.searchSchemaMu.RLock()
+	if cached, ok := ds.searchSchema[cacheKey]; ok {
+		out := make([]searchTableMeta, len(cached))
+		copy(out, cached)
+		ds.searchSchemaMu.RUnlock()
+		return out, nil
+	}
+	ds.searchSchemaMu.RUnlock()
+
+	tableNames, err := ds.GetTables(group, file)
+	if err != nil {
+		return nil, err
+	}
+
+	metas := make([]searchTableMeta, 0, len(tableNames))
+	for _, tableName := range tableNames {
+		if tableName == "" || strings.HasPrefix(strings.ToLower(tableName), "sqlite_") {
+			continue
+		}
+		escapedTable := strings.ReplaceAll(tableName, `"`, `""`)
+		infoSQL := fmt.Sprintf(`PRAGMA table_info("%s")`, escapedTable)
+		cols, err := ds.client.Query(group, file, infoSQL)
+		if err != nil {
+			continue
+		}
+		searchable := make([]string, 0, len(cols))
+		allColumns := make([]searchColumnMeta, 0, len(cols))
+		deepCandidates := make([]searchColumnMeta, 0, len(cols))
+		for _, col := range cols {
+			name := toString(col["name"])
+			typ := toString(col["type"])
+			if name == "" {
+				continue
+			}
+			meta := searchColumnMeta{Name: name, Type: typ}
+			allColumns = append(allColumns, meta)
+			if isSearchableColumn(name, typ) {
+				searchable = append(searchable, name)
+			}
+			if isDeepSearchCandidate(name, typ) {
+				deepCandidates = append(deepCandidates, meta)
+			}
+		}
+		if len(searchable) == 0 && len(deepCandidates) == 0 {
+			continue
+		}
+		metas = append(metas, searchTableMeta{
+			Name:          tableName,
+			Columns:       searchable,
+			AllColumns:    allColumns,
+			DeepCandidate: deepCandidates,
+		})
+	}
+
+	ds.searchSchemaMu.Lock()
+	ds.searchSchema[cacheKey] = metas
+	ds.searchSchemaMu.Unlock()
+
+	out := make([]searchTableMeta, len(metas))
+	copy(out, metas)
+	return out, nil
+}
+
+func (ds *DataSource) searchTable(group, file string, table searchTableMeta, keyword string, limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+
+	quotedCols := make([]string, 0, len(table.Columns))
+	conds := make([]string, 0, len(table.Columns))
+	kw := strings.ReplaceAll(strings.ToLower(keyword), `'`, `''`)
+
+	for _, col := range table.Columns {
+		escapedCol := strings.ReplaceAll(col, `"`, `""`)
+		quoted := fmt.Sprintf(`"%s"`, escapedCol)
+		quotedCols = append(quotedCols, quoted)
+		conds = append(conds, fmt.Sprintf(`INSTR(LOWER(CAST(%s AS TEXT)), '%s') > 0`, quoted, kw))
+	}
+	if len(conds) == 0 {
+		return nil, nil
+	}
+
+	escapedTable := strings.ReplaceAll(table.Name, `"`, `""`)
+	sql := fmt.Sprintf(
+		`SELECT rowid AS "__rowid__", %s FROM "%s" WHERE %s LIMIT %d`,
+		strings.Join(quotedCols, ", "),
+		escapedTable,
+		strings.Join(conds, " OR "),
+		limit,
+	)
+	rows, err := ds.client.Query(group, file, sql)
+	if err != nil {
+		return nil, err
+	}
+	return ds.rowsToSearchHits(group, file, table.Name, table.Columns, rows, strings.ToLower(keyword)), nil
+}
+
+func (ds *DataSource) deepSearchTable(group, file string, table searchTableMeta, keyword string, limit int) ([]map[string]interface{}, error) {
+	if limit <= 0 || len(table.DeepCandidate) == 0 {
+		return nil, nil
+	}
+
+	escapedTable := strings.ReplaceAll(table.Name, `"`, `""`)
+	allCols := make([]string, 0, len(table.AllColumns))
+	for _, col := range table.AllColumns {
+		escapedCol := strings.ReplaceAll(col.Name, `"`, `""`)
+		allCols = append(allCols, fmt.Sprintf(`"%s"`, escapedCol))
+	}
+	if len(allCols) == 0 {
+		return nil, nil
+	}
+
+	const batchSize = 200
+	out := make([]map[string]interface{}, 0, minInt(limit, 16))
+	lastRowID := int64(-1)
+	needle := strings.ToLower(keyword)
+
+	for len(out) < limit {
+		sql := fmt.Sprintf(
+			`SELECT rowid AS "__rowid__", %s FROM "%s" WHERE rowid > %d ORDER BY rowid LIMIT %d`,
+			strings.Join(allCols, ", "),
+			escapedTable,
+			lastRowID,
+			batchSize,
+		)
+		rows, err := ds.client.Query(group, file, sql)
+		if err != nil {
+			return out, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+
+		for _, row := range rows {
+			rowIDVal := extractRowID(row["__rowid__"])
+			if id, ok := rowIDVal.(int64); ok {
+				lastRowID = id
+			}
+			matchedRow := make(map[string]interface{}, 4)
+			matchedCols := make([]string, 0, 2)
+			for _, col := range table.DeepCandidate {
+				raw, ok := row[col.Name]
+				if !ok {
+					continue
+				}
+				val := extractDeepSearchText(col, raw)
+				if val == "" || !strings.Contains(strings.ToLower(val), needle) {
+					continue
+				}
+				matchedRow[col.Name] = val
+				matchedCols = append(matchedCols, col.Name)
+			}
+			if len(matchedCols) == 0 {
+				continue
+			}
+			sort.Strings(matchedCols)
+			for _, colName := range matchedCols {
+				out = append(out, map[string]interface{}{
+					"group":   group,
+					"file":    file,
+					"db_name": filepath.Base(file),
+					"table":   table.Name,
+					"column":  colName,
+					"row_id":  rowIDVal,
+					"preview": matchedRow[colName],
+					"row":     matchedRow,
+				})
+				if len(out) >= limit {
+					return out, nil
+				}
+			}
+		}
+
+		if len(rows) < batchSize {
+			break
+		}
+	}
+
+	return out, nil
+}
+
+func (ds *DataSource) rowsToSearchHits(group, file, table string, columns []string, rows []map[string]interface{}, needle string) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		rowID := extractRowID(row["__rowid__"])
+		matchedRow := make(map[string]interface{}, len(columns))
+		for _, col := range columns {
+			raw, ok := row[col]
+			if !ok {
+				continue
+			}
+			val := sanitizeSearchValue(raw)
+			if val == "" || !strings.Contains(strings.ToLower(val), needle) {
+				continue
+			}
+			matchedRow[col] = val
+		}
+		if len(matchedRow) == 0 {
+			continue
+		}
+
+		cols := make([]string, 0, len(matchedRow))
+		for col := range matchedRow {
+			cols = append(cols, col)
+		}
+		sort.Strings(cols)
+		for _, col := range cols {
+			out = append(out, map[string]interface{}{
+				"group":   group,
+				"file":    file,
+				"db_name": filepath.Base(file),
+				"table":   table,
+				"column":  col,
+				"row_id":  rowID,
+				"preview": matchedRow[col],
+				"row":     matchedRow,
+			})
+		}
+	}
+	return out
+}
+
+func isSearchableColumn(name, typ string) bool {
+	colName := strings.ToLower(strings.TrimSpace(name))
+	colType := strings.ToLower(strings.TrimSpace(typ))
+	if colName == "" {
+		return false
+	}
+	if strings.Contains(colType, "blob") || strings.Contains(colType, "binary") {
+		return false
+	}
+	if strings.HasSuffix(colName, "_buffer") || strings.HasSuffix(colName, "_blob") {
+		return false
+	}
+	if strings.Contains(colName, "packed_info") || strings.Contains(colName, "ext_buffer") {
+		return false
+	}
+	if strings.Contains(colName, "message_content") || strings.Contains(colName, "bytes_extra") {
+		return false
+	}
+	return true
+}
+
+func isDeepSearchCandidate(name, typ string) bool {
+	colName := strings.ToLower(strings.TrimSpace(name))
+	colType := strings.ToLower(strings.TrimSpace(typ))
+	if colName == "" {
+		return false
+	}
+	if strings.Contains(colName, "voice_data") || strings.Contains(colName, "thumbdata") {
+		return false
+	}
+	if strings.Contains(colName, "image") && strings.Contains(colType, "blob") {
+		return false
+	}
+	if strings.Contains(colName, "data") && strings.Contains(colType, "blob") &&
+		!strings.Contains(colName, "message_content") &&
+		!strings.Contains(colName, "packed_info") &&
+		!strings.Contains(colName, "bytes_extra") {
+		return false
+	}
+	return true
+}
+
+func sanitizeSearchValue(v interface{}) string {
+	s := strings.TrimSpace(toString(v))
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.ReplaceAll(s, "\n", " ")
+	runes := []rune(s)
+	if len(runes) > 240 {
+		s = string(runes[:240]) + "..."
+	}
+	return s
+}
+
+func extractDeepSearchText(col searchColumnMeta, v interface{}) string {
+	name := strings.ToLower(strings.TrimSpace(col.Name))
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case []byte:
+		return sanitizeSearchValue(extractBytesText(name, t))
+	default:
+		return sanitizeSearchValue(v)
+	}
+}
+
+func extractBytesText(colName string, data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	if bytes.HasPrefix(data, []byte{0x28, 0xb5, 0x2f, 0xfd}) {
+		if b, err := zstd.Decompress(data); err == nil {
+			return string(b)
+		}
+	}
+	if strings.Contains(colName, "packed_info") {
+		if packed := model.ParsePackedInfo(data); packed != nil {
+			if b, err := json.Marshal(packed); err == nil {
+				return string(b)
+			}
+		}
+	}
+	if utf8.Valid(data) {
+		return string(data)
+	}
+	return ""
+}
+
+func extractRowID(v interface{}) interface{} {
+	switch t := v.(type) {
+	case int64:
+		return t
+	case int:
+		return t
+	case float64:
+		return int64(t)
+	default:
+		s := strings.TrimSpace(toString(v))
+		if s == "" {
+			return nil
+		}
+		return s
+	}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (ds *DataSource) Close() error {

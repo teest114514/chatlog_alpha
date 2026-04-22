@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/server",
+  "$ref": "#/$defs/Server",
+  "$defs": {
+    "Server": {
+      "properties": {
+        "ip_address": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ipv4"
+            },
+            {
+              "$ref": "#/$defs/ipv6"
+            }
+          ]
+        },
+        "ip_addresses": {
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ipv4"
+              },
+              {
+                "$ref": "#/$defs/ipv6"
+              }
+            ]
+          },
+          "type": "array"
+        },
+        "ip_address_any": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ipv4"
+            },
+            {
+              "$ref": "#/$defs/ipv6"
+            }
+          ]
+        },
+        "ip_addresses_any": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ipv4"
+              },
+              {
+                "$ref": "#/$defs/ipv6"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  }
+}

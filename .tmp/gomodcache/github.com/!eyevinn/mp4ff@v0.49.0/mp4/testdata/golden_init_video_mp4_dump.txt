@@ -1,0 +1,55 @@
+[ftyp] size=24
+ - majorBrand: cmfc
+ - minorVersion: 0
+ - compatibleBrand: dash
+ - compatibleBrand: iso6
+[moov] size=649
+  [mvhd] size=108 version=0 flags=000000
+   - timeScale: 90000
+   - duration: 0
+   - creation time: 0
+   - modification time: 0
+  [mvex] size=40
+    [trex] size=32 version=0 flags=000000
+     - trackID: 1
+     - defaultSampleDescriptionIndex: 1
+     - defaultSampleDuration: 0
+     - defaultSampleSize: 0
+     - defaultSampleFlags: 00000000 (isLeading=0 dependsOn=0 isDependedOn=0 hasRedundancy=0 padding=0 isNonSync=false degradationPriority=0)
+  [trak] size=493
+    [tkhd] size=92 version=0 flags=000007
+     - trackID: 1
+     - duration: 0
+     - creation time: 0
+     - modification time: 0
+     - Width: 640.0, Height: 360.0
+    [mdia] size=393
+      [mdhd] size=32 version=0 flags=000000
+       - timeScale: 180000
+       - creation time: 0
+       - modification time: 0
+       - language: und
+      [hdlr] size=52 version=0 flags=000000
+       - handlerType: vide
+       - handlerName: "mp4ff video handler"
+      [minf] size=301
+        [vmhd] size=20 version=0 flags=000001
+        [dinf] size=36
+          [dref] size=28 version=0 flags=000000
+            [url ] size=12 version=0 flags=000001
+        [stbl] size=237
+          [stsd] size=161 version=0 flags=000000
+            [avc3] size=145
+             - width: 640
+             - height: 360
+             - compressorName: "mp4ff video packager"
+              [avcC] size=59
+               - AVCProfileIndication: 77
+               - profileCompatibility: 40
+               - AVCLevelIndication: 31
+               - SPS: 674d401fe4605017fcb80b4f00000300010000030032e4800753003a9e08200e58e189c0
+               - PPS: 685bdf20
+          [stts] size=16 version=0 flags=000000
+          [stsc] size=16 version=0 flags=000000
+          [stsz] size=20 version=0 flags=000000
+          [stco] size=16 version=0 flags=000000

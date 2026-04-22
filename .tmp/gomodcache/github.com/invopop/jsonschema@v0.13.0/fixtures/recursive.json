@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/recursive-example",
+  "$ref": "#/$defs/RecursiveExample",
+  "$defs": {
+    "RecursiveExample": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/RecursiveExample"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "text"
+      ]
+    }
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/invopop/jsonschema/examples/user",
+  "$ref": "#/$defs/User",
+  "$defs": {
+    "NamedPets": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Pet"
+      },
+      "type": "object",
+      "description": "NamedPets is a map of animal names to pets."
+    },
+    "Pet": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the animal."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "description": "Pet defines the user's fury friend."
+    },
+    "Pets": {
+      "items": {
+        "$ref": "#/$defs/Pet"
+      },
+      "type": "array",
+      "description": "Pets is a collection of Pet objects."
+    },
+    "Plant": {
+      "properties": {
+        "variant": {
+          "type": "string",
+          "title": "Variant",
+          "description": "This comment will be used"
+        },
+        "multicellular": {
+          "type": "boolean",
+          "title": "Multicellular",
+          "description": "Multicellular is true if the plant is multicellular"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "variant"
+      ],
+      "description": "Plant represents the plants the user might have and serves as a test of structs inside a `type` set."
+    },
+    "User": {
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Field ID of Go type github.com/invopop/jsonschema/examples.User."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 20,
+          "minLength": 1,
+          "pattern": ".*",
+          "title": "the name",
+          "description": "this is a property",
+          "default": "alex",
+          "examples": [
+            "joe",
+            "lucy"
+          ]
+        },
+        "friends": {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array",
+          "description": "list of IDs, omitted when empty"
+        },
+        "tags": {
+          "type": "object",
+          "description": "Field Tags of Go type github.com/invopop/jsonschema/examples.User."
+        },
+        "pets": {
+          "$ref": "#/$defs/Pets",
+          "description": "Field Pets of Go type github.com/invopop/jsonschema/examples.User."
+        },
+        "named_pets": {
+          "$ref": "#/$defs/NamedPets",
+          "description": "Field NamedPets of Go type github.com/invopop/jsonschema/examples.User."
+        },
+        "plants": {
+          "items": {
+            "$ref": "#/$defs/Plant"
+          },
+          "type": "array",
+          "title": "Plants",
+          "description": "Field Plants of Go type github.com/invopop/jsonschema/examples.User."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "pets",
+        "named_pets",
+        "plants"
+      ],
+      "description": "Go type User, defined in package github.com/invopop/jsonschema/examples."
+    }
+  }
+}

@@ -1,0 +1,226 @@
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.18.x', '1.19.x', '1.20.x', '1.21.x', '1.22.x', '1.23.x']
+    name: Test with Go ${{ matrix.go }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Git
+        run: |
+          # See actions/checkout#135
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Set up the prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu qemu-user
+
+      - name: go vet
+        if: runner.os != 'Windows' && runner.os != 'macOS'
+        run: |
+          go vet -v ./...
+
+      - name: go build
+        run: |
+          go build -v ./...
+          # Compile without optimization to check potential stack overflow.
+          # The option '-gcflags=all=-N -l' is often used at Visual Studio Code.
+          # See also https://go.googlesource.com/vscode-go/+/HEAD/docs/debugging.md#launch and the issue hajimehoshi/ebiten#2120.
+          go build "-gcflags=all=-N -l" -v ./...
+
+          # Check cross-compiling Windows binaries.
+          env GOOS=windows GOARCH=386 go build -v ./...
+          env GOOS=windows GOARCH=amd64 go build -v ./...
+          env GOOS=windows GOARCH=arm go build -v ./...
+          env GOOS=windows GOARCH=arm64 go build -v ./...
+
+          # Check cross-compiling macOS binaries.
+          env GOOS=darwin GOARCH=amd64 go build -v ./...
+          env GOOS=darwin GOARCH=arm64 go build -v ./...
+
+          # Check cross-compiling Linux binaries.
+          env GOOS=linux GOARCH=amd64 go build -v ./...
+          env GOOS=linux GOARCH=arm64 go build -v ./...
+
+          # Check cross-compiling FreeBSD binaries.
+          # gcflags -std is necessary to make fakecgo the Cgo for
+          # FreeBSD to add the symbols that libc.so depends on.
+          env GOOS=freebsd GOARCH=amd64 go build -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -v ./...
+          env GOOS=freebsd GOARCH=arm64 go build -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -v ./...
+
+      - name: go build (plugin)
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        run:
+          # Make sure that plugin buildmode works since we save the R15 register (#254)
+          go build -buildmode=plugin ./examples/libc
+
+      - name: go mod vendor
+        if: runner.os != 'Linux'
+        run: |
+          mkdir /tmp/vendoring
+          cd /tmp/vendoring
+          go mod init foo
+          echo 'package main' > main.go
+          echo 'import (' >> main.go
+          echo '  _ "github.com/ebitengine/purego"' >> main.go
+          echo ')' >> main.go
+          echo 'func main() {}' >> main.go
+          go mod edit -replace github.com/ebitengine/purego=$GITHUB_WORKSPACE
+          go mod tidy
+          go mod vendor
+          go build -v .
+
+      - name: go test
+        run: |
+          env CGO_ENABLED=0 go test -shuffle=on -v -count=10 ./...
+          env CGO_ENABLED=1 go test -shuffle=on -v -count=10 ./...
+          # Compile without optimization to check potential stack overflow.
+          # The option '-gcflags=all=-N -l' is often used at Visual Studio Code.
+          # See also https://go.googlesource.com/vscode-go/+/HEAD/docs/debugging.md#launch.
+          env CGO_ENABLED=0 go test "-gcflags=all=-N -l" -v ./...
+          env CGO_ENABLED=1 go test "-gcflags=all=-N -l" -v ./...
+
+      - name: go test (Linux arm64)
+        if: runner.os == 'Linux'
+        run: |
+          go env -w CC=aarch64-linux-gnu-gcc
+          go env -w CXX=aarch64-linux-gnu-g++
+          env GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go test -c -o=purego-test-nocgo .
+          env QEMU_LD_PREFIX=/usr/aarch64-linux-gnu qemu-aarch64 ./purego-test-nocgo -test.shuffle=on -test.v -test.count=10
+          env GOOS=linux GOARCH=arm64 CGO_ENABLED=1 go test -c -o=purego-test-cgo .
+          env QEMU_LD_PREFIX=/usr/aarch64-linux-gnu qemu-aarch64 ./purego-test-cgo -test.shuffle=on -test.v -test.count=10
+          
+          echo "=> go build (plugin)"
+          # Make sure that plugin buildmode works since we save the R15 register (#254)
+          env GOOS=linux GOARCH=arm64 CGO_ENABLED=1 go build -buildmode=plugin ./examples/libc
+          
+          go env -u CC
+          go env -u CXX
+
+      - name: go test (Windows 386)
+        if: runner.os == 'Windows'
+        run: |
+          env CGO_ENABLED=0 GOARCH=386 go test -shuffle=on -v -count=10 ./...
+          env CGO_ENABLED=1 GOARCH=386 go test -shuffle=on -v -count=10 ./...
+
+      - name: go test (Linux 386)
+        if: runner.os == 'Linux'
+        run: |
+           sudo apt-get install gcc-multilib
+           sudo apt-get install g++-multilib
+           env CGO_ENABLED=1 GOARCH=386 go test -shuffle=on -v -count=10 ./...
+
+      - name: go test race (no Cgo)
+        if: ${{ runner.os == 'macOS' &&  !startsWith(matrix.go, '1.18.') && !startsWith(matrix.go, '1.19.') }}
+        run: |
+          # -race usually requires Cgo, but macOS is an exception. See https://go.dev/doc/articles/race_detector#Requirements
+          env CGO_ENABLED=0 go test -race -shuffle=on -v -count=10 ./...
+
+      - name: go test race (Cgo)
+        if: ${{ !startsWith(matrix.go, '1.18.') && !startsWith(matrix.go, '1.19.') }}
+        run: |
+          env CGO_ENABLED=1 go test -race -shuffle=on -v -count=10 ./...
+
+  freebsd:
+    strategy:
+      matrix:
+        go: ['1.18.10', '1.19.13', '1.20.14', '1.21.13', '1.22.12', '1.23.9', '1.24.3']
+    name: Test with Go ${{ matrix.go }} on FreeBSD
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run in freebsd
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            fetch https://go.dev/dl/go${{matrix.go}}.freebsd-amd64.tar.gz
+            rm -fr /usr/local/go && tar -C /usr/local -xf go${{matrix.go}}.freebsd-amd64.tar.gz
+            ln -s /usr/local/go/bin/go /usr/local/bin
+          run: |
+            # FreeBSD tests run within QEMU on Ubuntu.
+            # vmactions/freebsd-vm only supports a single "step" where it
+            # brings down the VM at the end of the step, so all
+            # the commands to run need to be put into this single block.
+
+            echo "Running tests on $(uname -a) at $PWD"
+
+            # verify Go is available
+            go version
+
+            echo "=> go build"
+            go build -v ./...
+            # Compile without optimization to check potential stack overflow.
+            # The option '-gcflags=all=-N -l' is often used at Visual Studio Code.
+            # See also https://go.googlesource.com/vscode-go/+/HEAD/docs/debugging.md#launch and the issue hajimehoshi/ebiten#2120.
+            go build "-gcflags=all=-N -l" -v ./...
+
+            # Check cross-compiling Windows binaries.
+            env GOOS=windows GOARCH=386 go build -v ./...
+            env GOOS=windows GOARCH=amd64 go build -v ./...
+            env GOOS=windows GOARCH=arm go build -v ./...
+            env GOOS=windows GOARCH=arm64 go build -v ./...
+
+            # Check cross-compiling macOS binaries.
+            env GOOS=darwin GOARCH=amd64 go build -v ./...
+            env GOOS=darwin GOARCH=arm64 go build -v ./...
+
+            # Check cross-compiling Linux binaries.
+            env GOOS=linux GOARCH=amd64 go build -v ./...
+            env GOOS=linux GOARCH=arm64 go build -v ./...
+
+            # Check cross-compiling FreeBSD binaries.
+            env GOOS=freebsd GOARCH=amd64 go build -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -v ./...
+            env GOOS=freebsd GOARCH=arm64 go build -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -v ./...
+
+            echo "=> go build (plugin)"
+            # Make sure that plugin buildmode works since we save the R15 register (#254)
+            go build -buildmode=plugin ./examples/libc
+
+            echo "=> go mod vendor"
+            mkdir /tmp/vendoring
+            cd /tmp/vendoring
+            go mod init foo
+            echo 'package main' > main.go
+            echo 'import (' >> main.go
+            echo '  _ "github.com/ebitengine/purego"' >> main.go
+            echo ')' >> main.go
+            echo 'func main() {}' >> main.go
+            go mod edit -replace github.com/ebitengine/purego=$GITHUB_WORKSPACE
+            go mod tidy
+            go mod vendor
+            go build -v .
+
+            cd $GITHUB_WORKSPACE
+            echo "=> go test CGO_ENABLED=0"
+            env CGO_ENABLED=0 go test -gcflags="github.com/ebitengine/purego/internal/fakecgo=-std" -shuffle=on -v -count=10 ./...
+
+            echo "=> go test CGO_ENABLED=1"
+            env CGO_ENABLED=1 go test -shuffle=on -v -count=10 ./...
+
+            if [ -z "$(echo ${{matrix.go}} | grep '^1.1')" ]; then
+              echo "=> go test race"
+              go test -race -shuffle=on -v -count=10 ./...
+            fi

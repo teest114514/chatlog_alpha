@@ -1,0 +1,10 @@
+./annexb.go
+./avc.go
+./avcdecoderconfigurationrecord.go
+./doc.go
+./mime.go
+./nalus.go
+./pps.go
+./sei.go
+./slice.go
+./sps.go

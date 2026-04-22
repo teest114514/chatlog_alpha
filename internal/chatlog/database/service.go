@@ -161,6 +161,13 @@ func (s *Service) ExecuteSQL(group, file, query string) ([]map[string]interface{
 	return s.db.ExecuteSQL(group, file, query)
 }
 
+func (s *Service) SearchAll(keyword string, limit int, deep bool) ([]map[string]interface{}, error) {
+	if s.db == nil {
+		return nil, nil
+	}
+	return s.db.SearchAll(keyword, limit, deep)
+}
+
 func (s *Service) initMessageHook() error {
 	if s.db == nil {
 		return nil
