@@ -19,7 +19,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/sjzar/chatlog/internal/chatlog/conf"
 	"github.com/sjzar/chatlog/internal/chatlog/hermespush"
-	"github.com/sjzar/chatlog/internal/chatlog/semantic"
 	"github.com/sjzar/chatlog/internal/model"
 	"github.com/sjzar/chatlog/internal/wechatdb"
 )
@@ -82,7 +81,6 @@ type Service struct {
 	notify     func(Event)
 	seenSeq    map[string]int64
 	startAt    time.Time
-	semantic   *semantic.Client
 }
 
 func New(conf Config, db *wechatdb.DB, notify func(Event)) *Service {
@@ -93,7 +91,6 @@ func New(conf Config, db *wechatdb.DB, notify func(Event)) *Service {
 		notify:     notify,
 		seenSeq:    make(map[string]int64),
 		startAt:    time.Now(),
-		semantic:   semantic.NewClient(),
 	}
 }
 
@@ -767,14 +764,6 @@ func (s *Service) matchRules(m *model.Message, content string, keywords []string
 	out := make([]matchedRule, 0, 4)
 	if kw := matchKeyword(content, keywords); kw != "" {
 		out = append(out, matchedRule{RuleType: "keyword", RuleLabel: kw, Keyword: kw})
-	} else {
-		if kw, score := s.matchKeywordSemantic(content, keywords); kw != "" {
-			out = append(out, matchedRule{
-				RuleType:  "semantic_keyword",
-				RuleLabel: fmt.Sprintf("%s (%.3f)", kw, score),
-				Keyword:   kw,
-			})
-		}
 	}
 	talker := strings.TrimSpace(m.Talker)
 	talkerName := strings.TrimSpace(m.TalkerName)
@@ -792,31 +781,6 @@ func (s *Service) matchRules(m *model.Message, content string, keywords []string
 		}
 	}
 	return dedupeRules(out)
-}
-
-func (s *Service) matchKeywordSemantic(content string, keywords []string) (string, float64) {
-	cfg := s.conf.GetSemanticConfig()
-	if cfg == nil {
-		return "", 0
-	}
-	c := conf.NormalizeSemanticConfig(*cfg)
-	if !c.Enabled || !c.EnableSemanticPush || strings.TrimSpace(c.APIKey) == "" || len(keywords) == 0 {
-		return "", 0
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-	defer cancel()
-	rank, err := s.semantic.Rerank(ctx, c, content, keywords, 1)
-	if err != nil || len(rank) == 0 {
-		return "", 0
-	}
-	item := rank[0]
-	if item.Index < 0 || item.Index >= len(keywords) {
-		return "", 0
-	}
-	if item.Score < c.SimilarityThreshold {
-		return "", item.Score
-	}
-	return keywords[item.Index], item.Score
 }
 
 func parseTargetList(raw string) map[string]struct{} {

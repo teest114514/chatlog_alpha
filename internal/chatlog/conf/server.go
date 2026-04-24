@@ -110,7 +110,6 @@ func (c *ServerConfig) GetSemanticConfig() *SemanticConfig {
 	norm := NormalizeSemanticConfig(*c.Semantic)
 	norm.Enabled = true
 	norm.EnableRerank = true
-	norm.EnableSemanticPush = true
 	norm.EnableQA = true
 	norm.EnableTopics = true
 	norm.EnableProfiles = true
@@ -123,7 +122,6 @@ func (c *ServerConfig) SetSemanticConfig(cfg SemanticConfig) {
 	norm := NormalizeSemanticConfig(cfg)
 	norm.Enabled = true
 	norm.EnableRerank = true
-	norm.EnableSemanticPush = true
 	norm.EnableQA = true
 	norm.EnableTopics = true
 	norm.EnableProfiles = true

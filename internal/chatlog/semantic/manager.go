@@ -532,29 +532,6 @@ func (m *Manager) PlanJSON(ctx context.Context, prompt string) (string, error) {
 	})
 }
 
-func (m *Manager) MatchKeywordSemantically(ctx context.Context, content string, keywords []string) (string, float64, error) {
-	cfg := m.currentConfig()
-	if !cfg.Enabled || !cfg.EnableSemanticPush || len(keywords) == 0 {
-		return "", 0, nil
-	}
-	query := strings.TrimSpace(content)
-	if query == "" {
-		return "", 0, nil
-	}
-	rank, err := m.client.Rerank(ctx, cfg, query, keywords, 1)
-	if err != nil || len(rank) == 0 {
-		return "", 0, err
-	}
-	item := rank[0]
-	if item.Index < 0 || item.Index >= len(keywords) {
-		return "", 0, nil
-	}
-	if item.Score < cfg.SimilarityThreshold {
-		return "", item.Score, nil
-	}
-	return keywords[item.Index], item.Score, nil
-}
-
 func (m *Manager) buildAll(ctx context.Context, cfg conf.SemanticConfig, mode string, full, reset bool) error {
 	sessions, err := m.db.GetSessions("", 5000, 0)
 	if err != nil {

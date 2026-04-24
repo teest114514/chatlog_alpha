@@ -688,6 +688,160 @@
             }
         }
 
+        /* Dashboard Overview Styles */
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+        .overview-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            transition: box-shadow 0.2s;
+        }
+        .overview-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .overview-icon {
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.3rem; flex-shrink: 0;
+        }
+        .overview-icon.blue { background: #eff6ff; color: #3b82f6; }
+        .overview-icon.green { background: #ecfdf5; color: #10b981; }
+        .overview-icon.amber { background: #fffbeb; color: #f59e0b; }
+        .overview-icon.purple { background: #f5f3ff; color: #8b5cf6; }
+        .overview-info { display: flex; flex-direction: column; }
+        .overview-value { font-size: 1.4rem; font-weight: 700; color: var(--text-main); line-height: 1.2; }
+        .overview-label { font-size: 0.8rem; color: var(--text-secondary); }
+
+        /* Group Comparison Cards */
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+        .comparison-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            cursor: pointer;
+            transition: box-shadow 0.2s;
+        }
+        .comparison-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+        .comparison-card h4 {
+            margin: 0 0 10px;
+            font-size: 0.95rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: var(--text-main);
+        }
+        .comparison-stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .comparison-stat {
+            text-align: center;
+            padding: 8px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+        .comparison-stat .val { font-size: 1.1rem; font-weight: 700; color: var(--text-main); }
+        .comparison-stat .lbl { font-size: 0.72rem; color: var(--text-secondary); }
+        .comparison-type-bar {
+            display: flex; gap: 4px; height: 8px; border-radius: 999px; overflow: hidden;
+            margin-bottom: 6px;
+        }
+        .comparison-type-bar span { height: 100%; }
+        .comparison-type-bar .img { background: #3b82f6; }
+        .comparison-type-bar .txt { background: #10b981; }
+        .comparison-type-bar .vid { background: #f59e0b; }
+        .comparison-type-bar .share { background: #ec4899; }
+        .comparison-type-bar .other { background: #d1d5db; }
+        .comparison-type-legend {
+            display: flex; gap: 10px; font-size: 0.72rem; color: var(--text-secondary); flex-wrap: wrap;
+        }
+        .comparison-type-legend span { display: flex; align-items: center; gap: 3px; }
+        .comparison-type-legend .dot {
+            width: 8px; height: 8px; border-radius: 2px; display: inline-block;
+        }
+
+        /* Leaderboard */
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.86rem;
+        }
+        .leaderboard-table th {
+            text-align: left;
+            padding: 8px 10px;
+            border-bottom: 2px solid var(--border);
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.78rem;
+            text-transform: uppercase;
+        }
+        .leaderboard-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #f3f4f6;
+        }
+        .leaderboard-table .rank { width: 36px; text-align: center; font-weight: 700; }
+        .leaderboard-table .rank-1 { color: #f59e0b; }
+        .leaderboard-table .rank-2 { color: #6b7280; }
+        .leaderboard-table .rank-3 { color: #b45309; }
+        .leaderboard-table .count { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+        .leaderboard-table .group-name { font-size: 0.75rem; color: var(--text-secondary); }
+        .leaderboard-table tr:hover td { background: #f9fafb; }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .section-header h2 { margin: 0; }
+
+        .time-range-tabs {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+        .time-range-tab {
+            padding: 3px 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-card);
+            border-radius: 14px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .time-range-tab:hover {
+            color: var(--primary);
+            border-color: var(--primary);
+            background: #eff6ff;
+        }
+        .time-range-tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        @media (max-width: 768px) {
+            .overview-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
         /* Database List Styles */
         .db-group {
             margin-bottom: 20px;
@@ -886,6 +1040,121 @@
                 </section>
             </div>
 
+            <!-- 全局数据概览 -->
+            <div class="section-header">
+                <h2>全局数据概览</h2>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div class="time-range-tabs" id="dashboard-stats-range">
+                        <button class="time-range-tab active" data-range="1d">今天</button>
+                        <button class="time-range-tab" data-range="7d">近7天</button>
+                        <button class="time-range-tab" data-range="30d">近1月</button>
+                        <button class="time-range-tab" data-range="90d">近季度</button>
+                        <button class="time-range-tab" data-range="1y">近1年</button>
+                        <button class="time-range-tab" data-range="all">全部</button>
+                    </div>
+                    <span id="dashboard-overview-time" style="font-size:0.8rem;color:var(--text-secondary);"></span>
+                </div>
+            </div>
+            <div class="overview-grid" id="dashboard-overview-grid">
+                <div class="overview-card">
+                    <div class="overview-icon blue">💬</div>
+                    <div class="overview-info">
+                        <span class="overview-value" id="dashboard-ov-msgs">-</span>
+                        <span class="overview-label">消息总量</span>
+                    </div>
+                </div>
+                <div class="overview-card">
+                    <div class="overview-icon green">👥</div>
+                    <div class="overview-info">
+                        <span class="overview-value" id="dashboard-ov-groups">-</span>
+                        <span class="overview-label">活跃群聊</span>
+                    </div>
+                </div>
+                <div class="overview-card">
+                    <div class="overview-icon amber">📇</div>
+                    <div class="overview-info">
+                        <span class="overview-value" id="dashboard-ov-senders">-</span>
+                        <span class="overview-label">参与人数</span>
+                    </div>
+                </div>
+                <div class="overview-card">
+                    <div class="overview-icon purple">🔍</div>
+                    <div class="overview-info">
+                        <span class="overview-value" id="dashboard-ov-indexed">-</span>
+                        <span class="overview-label">语义索引覆盖</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 群聊对比 -->
+            <div class="section-header">
+                <h2>群聊对比</h2>
+                <span style="font-size:0.8rem;color:var(--text-secondary);">点击卡片跳转对应群聊的消息检索</span>
+            </div>
+            <div class="comparison-grid" id="dashboard-comparison-grid">
+                <div class="analytics-empty" style="grid-column:1/-1;">加载中...</div>
+            </div>
+
+            <!-- 发言人排行榜 -->
+            <div class="section-header">
+                <h2>发言人排行榜</h2>
+                <span style="font-size:0.8rem;color:var(--text-secondary);">跨群汇总 Top 15</span>
+            </div>
+            <div class="analytics-panel" style="margin-bottom:24px;">
+                <div id="dashboard-leaderboard-body">
+                    <div class="analytics-empty">加载中...</div>
+                </div>
+            </div>
+
+            <!-- 各群消息类型对比 -->
+            <div class="section-header">
+                <h2>各群消息类型对比</h2>
+                <span style="font-size:0.8rem;color:var(--text-secondary);">直观比较三类群聊的媒体结构差异</span>
+            </div>
+            <div class="analytics-panel" style="margin-bottom:24px;">
+                <div id="dashboard-cross-type-chart" class="chart-container wide" style="height:300px;"></div>
+            </div>
+
+            <!-- 24小时活跃度折线图 -->
+            <div class="section-header">
+                <h2>24 小时活跃度对比</h2>
+                <span style="font-size:0.8rem;color:var(--text-secondary);">三条线叠加展示各群作息差异</span>
+            </div>
+            <div class="analytics-panel" style="margin-bottom:24px;">
+                <div id="dashboard-cross-hour-chart" class="chart-container wide" style="height:320px;"></div>
+            </div>
+
+            <!-- 每日消息趋势 + 语义分析摘要 -->
+            <div class="analytics-grid" style="margin-bottom:24px;">
+                <section class="analytics-panel">
+                    <div class="analytics-title-row">
+                        <div>
+                            <h3>消息趋势</h3>
+                            <p>近期每日消息量变化</p>
+                        </div>
+                        <div class="time-range-tabs" id="dashboard-trend-range">
+                            <button class="time-range-tab" data-range="1d">今天</button>
+                            <button class="time-range-tab" data-range="7d">近7天</button>
+                            <button class="time-range-tab active" data-range="30d">近1月</button>
+                            <button class="time-range-tab" data-range="90d">近季度</button>
+                            <button class="time-range-tab" data-range="1y">近1年</button>
+                        </div>
+                    </div>
+                    <div id="dashboard-daily-trend-chart" class="chart-container wide" style="height:260px;"></div>
+                </section>
+                <section class="analytics-panel">
+                    <div class="analytics-title-row">
+                        <div>
+                            <h3>语义分析摘要</h3>
+                            <p>近期热点话题与隐私提醒</p>
+                        </div>
+                    </div>
+                    <div id="dashboard-semantic-summary-body">
+                        <div class="analytics-empty">加载中...</div>
+                    </div>
+                </section>
+            </div>
+
             <h2>当前可查询数据库</h2>
             <p class="text-gray" style="margin-bottom: 20px;">点击下方的数据库文件可直接浏览其表结构和数据内容。</p>
             <div id="db-list-container">
@@ -1035,7 +1304,7 @@
                         <div class="semantic-fixed-flags">
                             <label><input type="checkbox" id="semantic-enabled" checked disabled> 语义能力</label>
                             <label><input type="checkbox" id="semantic-enable-rerank" checked disabled> 重排序</label>
-                            <label><input type="checkbox" id="semantic-enable-push" checked disabled> 语义推送</label>
+
                             <label><input type="checkbox" id="semantic-realtime-index" checked disabled> 实时增量索引</label>
                             <label><input type="checkbox" id="semantic-enable-qa" checked disabled> 会话问答</label>
                             <label><input type="checkbox" id="semantic-enable-topics" checked disabled> 主题趋势</label>
@@ -1554,6 +1823,9 @@
         let semanticActiveMetaId = '';
         let semanticActiveEvidenceId = '';
         let dashboardSessions = [];
+        let dashboardGroupStats = [];
+        let dashboardStatsRange = '1d';
+        let dashboardTrendWindow = '30d';
         const dashboardCharts = {};
         const dashboardMsgTypeMap = {
             text: '1',
@@ -2435,7 +2707,346 @@
             renderDashboardCharts(kind, typeItems, hourItems, ratioItems);
         }
 
-	        function buildSessionOptions(kind, select, preserveValue = '') {
+	       
+        // ==================== Dashboard Overview / Comparison / Leaderboard ====================
+
+        function getStatsTimeParam() {
+            switch (dashboardStatsRange) {
+                case '1d': return 'last-1d';
+                case '7d': return 'last-7d';
+                case '30d': return 'last-30d';
+                case '90d': return 'last-3m';
+                case '1y': return 'last-1y';
+                case 'all': return 'all';
+                default: return 'last-1d';
+            }
+        }
+
+        function getTrendWindowParam() {
+            switch (dashboardTrendWindow) {
+                case '1d': return 'today';
+                case '7d': return '7d';
+                case '30d': return '30d';
+                case '90d': return '90d';
+                case '1y': return '1y';
+                default: return '30d';
+            }
+        }
+
+        function setupDashboardTimeRange(containerId, stateKey, onChange) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.querySelectorAll('.time-range-tab').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    container.querySelectorAll('.time-range-tab').forEach(function(b) { b.classList.remove('active'); });
+                    btn.classList.add('active');
+                    const range = btn.getAttribute('data-range');
+                    if (stateKey === 'stats') {
+                        dashboardStatsRange = range;
+                    } else {
+                        dashboardTrendWindow = range;
+                    }
+                    if (typeof onChange === 'function') onChange(range);
+                });
+            });
+        }
+
+        async function loadDashboardOverview() {
+            try {
+                const groups = dashboardSessions.filter(s => s.chat_type === 'group');
+                if (!groups.length) {
+                    document.getElementById('dashboard-overview-grid').innerHTML =
+                        '<div class="analytics-empty" style="grid-column:1/-1;">暂无群聊数据</div>';
+                    return;
+                }
+                const timeParam = getStatsTimeParam();
+                const promises = groups.map(async (g) => {
+                    try {
+                        const res = await fetchWithTimeout(`/api/v1/stats?format=json&chat=${encodeURIComponent(g.username)}&time=${encodeURIComponent(timeParam)}`);
+                        if (!res.ok) return null;
+                        return await res.json();
+                    } catch (e) { return null; }
+                });
+                const results = await Promise.all(promises);
+                const statsList = results.filter(d => d && d.total > 0);
+                dashboardGroupStats = statsList;
+
+                const totalMsgs = statsList.reduce((s, d) => s + (d.total || 0), 0);
+                const totalGroups = statsList.length;
+                const uniqueSenders = new Set();
+                statsList.forEach(d => {
+                    (d.top_senders || []).forEach(s => {
+                        if (s.sender && s.sender.trim()) uniqueSenders.add(s.sender.trim());
+                    });
+                });
+
+                document.getElementById('dashboard-ov-msgs').textContent = totalMsgs.toLocaleString();
+                document.getElementById('dashboard-ov-groups').textContent = totalGroups;
+                document.getElementById('dashboard-ov-senders').textContent = uniqueSenders.size;
+
+                try {
+                    const idxRes = await fetchWithTimeout('/api/v1/semantic/index/status');
+                    if (idxRes.ok) {
+                        const idx = await idxRes.json();
+                        document.getElementById('dashboard-ov-indexed').textContent =
+                            `${(idx.indexedcount || 0).toLocaleString()} 条`;
+                        document.getElementById('dashboard-ov-indexed').title =
+                            `已索引会话: ${idx.indexedtalkers || 0}/${idx.knowntalkers || 0}`;
+                    }
+                } catch (e) { document.getElementById('dashboard-ov-indexed').textContent = '-'; }
+
+                var rangeLabels = { '1d': '今天', '7d': '近7天', '30d': '近1月', '90d': '近季度', '1y': '近1年', 'all': '全部' };
+                document.getElementById('dashboard-overview-time').textContent =
+                    (rangeLabels[dashboardStatsRange] || '') + ' · 更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+                renderDashboardComparison(statsList);
+                renderDashboardLeaderboard(statsList);
+                renderDashboardCrossCharts(statsList);
+            } catch (e) {
+                console.error('loadDashboardOverview error:', e);
+            }
+        }
+
+        function renderDashboardComparison(statsList) {
+            const grid = document.getElementById('dashboard-comparison-grid');
+            if (!statsList.length) {
+                grid.innerHTML = '<div class="analytics-empty" style="grid-column:1/-1;">暂无群聊统计数据</div>';
+                return;
+            }
+            grid.innerHTML = statsList.map(d => {
+                const typeCounts = (d.by_type || []).slice(0, 5);
+                const total = d.total || 1;
+                const typeBarHtml = typeCounts.map(t => {
+                    const cls = typeClass(t.type);
+                    const pct = (t.count / total * 100).toFixed(1);
+                    return `<span class="${cls}" style="width:${pct}%" title="${t.type}: ${t.count} (${pct}%)"></span>`;
+                }).join('');
+                const legendHtml = typeCounts.map(t =>
+                    `<span><span class="dot ${typeClass(t.type)}"></span>${t.type} ${(t.count/total*100).toFixed(0)}%</span>`
+                ).join('');
+
+                const topSender = (d.top_senders || [])[0];
+                const peakHour = (d.by_hour || []).reduce((a, b) => (a.count > b.count ? a : b), { hour: '?', count: 0 });
+
+                return `
+                <div class="comparison-card" onclick="setChatlogFilters(decodeURIComponent('${encodeURIComponent(d.username || '')}'), '', '群聊 ${escapeHtml(d.chat || '')} 已跳转', '', {})">
+                    <h4 title="${escapeHtml(d.chat || d.username || '')}">${escapeHtml(d.chat || d.username || '')}</h4>
+                    <div class="comparison-stats">
+                        <div class="comparison-stat">
+                            <div class="val">${(d.total || 0).toLocaleString()}</div>
+                            <div class="lbl">消息总量</div>
+                        </div>
+                        <div class="comparison-stat">
+                            <div class="val">${d.active_senders || 0}</div>
+                            <div class="lbl">活跃人数</div>
+                        </div>
+                        <div class="comparison-stat">
+                            <div class="val">${d.active_days || 0}</div>
+                            <div class="lbl">活跃天数</div>
+                        </div>
+                        <div class="comparison-stat">
+                            <div class="val">${peakHour.hour}时</div>
+                            <div class="lbl">高峰时段</div>
+                        </div>
+                    </div>
+                    <div class="comparison-type-bar">${typeBarHtml}</div>
+                    <div class="comparison-type-legend">${legendHtml}</div>
+                    ${topSender ? `<div style="margin-top:8px;font-size:0.78rem;color:var(--text-secondary);">最多发言: <strong>${escapeHtml(topSender.sender || '?')}</strong> (${topSender.count}条)</div>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function renderDashboardLeaderboard(statsList) {
+            const body = document.getElementById('dashboard-leaderboard-body');
+            const agg = new Map();
+            statsList.forEach(d => {
+                (d.top_senders || []).forEach(s => {
+                    const name = (s.sender || '').trim();
+                    if (!name) return;
+                    const cur = agg.get(name) || { name, count: 0, groups: new Set() };
+                    cur.count += s.count || 0;
+                    cur.groups.add(d.chat || d.username || '');
+                    agg.set(name, cur);
+                });
+            });
+            const sorted = Array.from(agg.values()).sort((a, b) => b.count - a.count).slice(0, 15);
+            if (!sorted.length) {
+                body.innerHTML = '<div class="analytics-empty">暂无发言数据</div>';
+                return;
+            }
+            const maxCount = sorted[0].count;
+            body.innerHTML = `\n            <table class="leaderboard-table">\n                <thead><tr><th>#</th><th>发言人</th><th>来源群</th><th>消息数</th></tr></thead>\n                <tbody>\n                ${sorted.map((s, i) => `\n                <tr>\n                    <td class="rank rank-${i+1 <= 3 ? i+1 : ''}">${i + 1}</td>\n                    <td>${escapeHtml(s.name)}</td>\n                    <td class="group-name">${s.groups.size > 1 ? s.groups.size + ' 个群' : escapeHtml([...s.groups][0] || '')}</td>\n                    <td class="count">\n                        <div style="display:flex;align-items:center;gap:8px;">\n                            <div class="bar-track" style="flex:1;max-width:120px;"><div class="bar-fill ${i < 3 ? 'warning' : ''}" style="width:${(s.count/maxCount*100).toFixed(0)}%"></div></div>\n                            ${s.count.toLocaleString()}\n                        </div>\n                    </td>\n                </tr>`).join('')}\n                </tbody>\n            </table>`;
+        }
+
+        function typeClass(type) {
+            const m = { image: 'img', text: 'txt', video: 'vid', share: 'share' };
+            return m[type] || 'other';
+        }
+
+        function renderDashboardCrossCharts(statsList) {
+            if (!statsList.length) return;
+            const typeEl = document.getElementById('dashboard-cross-type-chart');
+            const hourEl = document.getElementById('dashboard-cross-hour-chart');
+
+            if (typeof echarts !== 'undefined') {
+                // Cross-group message type comparison (grouped bar chart)
+                const typeChart = getChartInstance('cross-type', typeEl);
+                if (typeChart) {
+                    const allTypes = ['text', 'image', 'video', 'share', 'system'];
+                    const groups = statsList.map(d => {
+                        const name = (d.chat || d.username || '-');
+                        const byType = {};
+                        (d.by_type || []).forEach(t => { byType[t.type] = t.count; });
+                        return { name, byType, total: d.total || 1 };
+                    });
+                    typeChart.setOption({
+                        animationDuration: 300,
+                        tooltip: {
+                            trigger: 'axis',
+                            formatter: function(params) {
+                                if (!Array.isArray(params)) return '';
+                                return params.map(function(p) {
+                                    var total = groups[p.dataIndex] ? groups[p.dataIndex].total : 1;
+                                    return p.seriesName + ': ' + (p.value || 0) + ' (' + ((p.value||0)/total*100).toFixed(1) + '%)';
+                                }).join('<br>');
+                            }
+                        },
+                        legend: { top: '2%', data: groups.map(function(g) { return g.name; }) },
+                        grid: { left: 16, right: 16, top: 48, bottom: 16 },
+                        xAxis: { type: 'category', data: allTypes, axisTick: { show: false } },
+                        yAxis: { type: 'value', splitLine: { lineStyle: { color: '#e5e7eb' } } },
+                        series: groups.map(function(g, i) {
+                            return {
+                                name: g.name,
+                                type: 'bar',
+                                barMaxWidth: 40,
+                                data: allTypes.map(function(t) { return g.byType[t] || 0; }),
+                                itemStyle: { borderRadius: [6, 6, 0, 0] }
+                            };
+                        })
+                    });
+                }
+
+                // 24-hour multi-line chart
+                const hourChart = getChartInstance('cross-hour', hourEl);
+                if (hourChart) {
+                    var groups = statsList.map(function(d) {
+                        return {
+                            name: (d.chat || d.username || '-'),
+                            data: new Array(24).fill(0)
+                        };
+                    });
+                    statsList.forEach(function(d, idx) {
+                        var byHour = {};
+                        (d.by_hour || []).forEach(function(h) { byHour[h.hour] = h.count; });
+                        for (var h = 0; h < 24; h++) groups[idx].data[h] = byHour[h] || 0;
+                    });
+                    var hours = [];
+                    for (var i = 0; i < 24; i++) hours.push(String(i));
+                    hourChart.setOption({
+                        animationDuration: 300,
+                        tooltip: { trigger: 'axis' },
+                        legend: { top: '2%', data: groups.map(function(g) { return g.name; }) },
+                        grid: { left: 28, right: 24, top: 48, bottom: 22 },
+                        xAxis: { type: 'category', data: hours, name: '小时', axisTick: { show: false } },
+                        yAxis: { type: 'value', splitLine: { lineStyle: { color: '#e5e7eb' } }, name: '消息数' },
+                        series: groups.map(function(g) {
+                            return {
+                                name: g.name,
+                                type: 'line',
+                                smooth: true,
+                                symbol: 'none',
+                                data: g.data
+                            };
+                        })
+                    });
+                }
+            } else {
+                if (typeEl) typeEl.innerHTML = '<div class="analytics-empty">需要 ECharts 支持</div>';
+                if (hourEl) hourEl.innerHTML = '<div class="analytics-empty">需要 ECharts 支持</div>';
+            }
+        }
+
+        async function loadDashboardDailyTrend() {
+            try {
+                var trendEl = document.getElementById('dashboard-daily-trend-chart');
+                if (!trendEl) return;
+                var windowKey = getTrendWindowParam();
+                var res = await fetchWithTimeout('/api/v1/semantic/topics?format=json&window=' + encodeURIComponent(windowKey));
+                if (!res.ok) throw new Error(await res.text());
+                var topics = await res.json();
+                var daily = Array.isArray(topics.daily) ? topics.daily : [];
+                if (daily.length === 0) {
+                    trendEl.innerHTML = '<div class="analytics-empty">暂无每日趋势数据</div>';
+                    return;
+                }
+                if (typeof echarts === 'undefined') {
+                    trendEl.innerHTML = renderBarList(daily.map(function(d) { return { label: d.date || '', value: d.count || 0 }; }), { fillClass: 'success' });
+                    return;
+                }
+                var chart = getChartInstance('daily-trend', trendEl);
+                if (chart) {
+                    chart.setOption({
+                        animationDuration: 300,
+                        tooltip: {
+                            trigger: 'axis',
+                            formatter: function(params) {
+                                var p = Array.isArray(params) ? params[0] : params;
+                                return p ? p.axisValue + ': ' + (p.value || 0) + ' 条' : '';
+                            }
+                        },
+                        grid: { left: 24, right: 24, top: 16, bottom: 28 },
+                        xAxis: { type: 'category', data: daily.map(function(d) { return d.date || ''; }), axisTick: { show: false } },
+                        yAxis: { type: 'value', splitLine: { lineStyle: { color: '#e5e7eb' } } },
+                        series: [{
+                            type: 'bar',
+                            data: daily.map(function(d) { return d.count || 0; }),
+                            itemStyle: { color: '#10b981', borderRadius: [6, 6, 0, 0] }
+                        }]
+                    });
+                }
+            } catch (e) {
+                var trendEl = document.getElementById('dashboard-daily-trend-chart');
+                if (trendEl) trendEl.innerHTML = '<div class="analytics-empty">趋势数据加载失败</div>';
+            }
+        }
+
+        async function loadDashboardSemanticSummary() {
+            try {
+                var body = document.getElementById('dashboard-semantic-summary-body');
+                if (!body) return;
+                var windowKey = getTrendWindowParam();
+                var res = await fetchWithTimeout('/api/v1/semantic/topics?format=json&window=' + encodeURIComponent(windowKey));
+                if (!res.ok) throw new Error(await res.text());
+                var topics = await res.json();
+
+                var topicList = Array.isArray(topics.topics) ? topics.topics : [];
+                var filteredTopics = topicList
+                    .filter(function(t) { return t.topic && isNaN(Number(t.topic)) && !/^\d{4}-\d{2}-\d{2}$/.test(t.topic); })
+                    .slice(0, 15);
+                var maxCount = filteredTopics.length ? filteredTopics[0].count : 1;
+
+                var summary = (topics.summary || '').replace(/\n/g, '<br>');
+                var hasPrivacy = summary.indexOf('隐私') >= 0 || summary.indexOf('手机') >= 0 || summary.indexOf('敏感') >= 0;
+
+                var topicTagsHtml = filteredTopics.length ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">' +
+                    filteredTopics.map(function(t) {
+                        var size = 0.7 + (t.count / maxCount) * 0.6;
+                        return '<span style="font-size:' + size.toFixed(2) + 'rem;color:var(--text-main);background:#f3f4f6;padding:2px 8px;border-radius:999px;">' + escapeHtml(t.topic) + ' (' + t.count + ')</span>';
+                    }).join('') + '</div>' : '';
+
+                body.innerHTML = (hasPrivacy ? '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.84rem;">\u26A0\uFE0F <strong>隐私提醒：</strong>检测到聊天中可能包含手机号码等敏感个人信息，请注意保护。</div>' : '') +
+                    '<div style="font-size:0.88rem;color:var(--text-main);line-height:1.6;">' + summary + '</div>' +
+                    topicTagsHtml +
+                    '<div style="margin-top:12px;font-size:0.78rem;color:var(--text-secondary);">统计范围: ' + escapeHtml(topics.from || '?') + ' - ' + escapeHtml(topics.to || '?') + ' | 消息数: ' + (topics.count || 0) + '</div>';
+            } catch (e) {
+                var body = document.getElementById('dashboard-semantic-summary-body');
+                if (body) body.innerHTML = '<div class="analytics-empty">语义分析摘要加载失败</div>';
+            }
+        }
+
+
+ function buildSessionOptions(kind, select, preserveValue = '') {
             const filtered = dashboardSessions.filter(item => item.chat_type === kind);
             if (!filtered.length) {
                 select.innerHTML = '<option value="">暂无会话</option>';
@@ -2491,6 +3102,17 @@
 	                    const data = await res.json();
 	                    dashboardSessions = Array.isArray(data.sessions) ? data.sessions : [];
                 }
+                setupDashboardTimeRange('dashboard-stats-range', 'stats', function() {
+                    loadDashboardOverview();
+                    const privateSelect = document.getElementById('dashboard-private-select');
+                    const groupSelect = document.getElementById('dashboard-group-select');
+                    if (privateSelect && privateSelect.value) loadDashboardStats('private');
+                    if (groupSelect && groupSelect.value) loadDashboardStats('group');
+                });
+                setupDashboardTimeRange('dashboard-trend-range', 'trend', function() {
+                    loadDashboardDailyTrend();
+                    loadDashboardSemanticSummary();
+                });
                 const privateSelect = document.getElementById('dashboard-private-select');
                 const groupSelect = document.getElementById('dashboard-group-select');
                 const privateValue = buildSessionOptions('private', privateSelect, privateSelect.value);
@@ -2499,6 +3121,9 @@
                 else document.getElementById('dashboard-private-body').innerHTML = '<div class="analytics-empty">暂无私聊会话</div>';
                 if (groupValue) loadDashboardStats('group');
                 else document.getElementById('dashboard-group-body').innerHTML = '<div class="analytics-empty">暂无群聊会话</div>';
+		        loadDashboardOverview();
+                loadDashboardDailyTrend();
+                loadDashboardSemanticSummary();
 	            } catch (e) {
 	                renderDashboardLoadError('private', e);
 	                renderDashboardLoadError('group', e);
@@ -2756,7 +3381,6 @@
                 chat_temperature: parseFloat(document.getElementById('semantic-chat-temperature').value) || 0.3,
                 embedding_dimension: parseInt(document.getElementById('semantic-embedding-dim').value, 10) || 2048,
                 enable_rerank: true,
-                enable_semantic_push: true,
                 enable_qa: true,
                 enable_topics: true,
                 enable_profiles: true,
@@ -2864,7 +3488,7 @@
             document.getElementById('semantic-chat-temperature').value = data.chat_temperature || 0.3;
             document.getElementById('semantic-embedding-dim').value = data.embedding_dimension || 2048;
             document.getElementById('semantic-enable-rerank').checked = true;
-            document.getElementById('semantic-enable-push').checked = true;
+
             document.getElementById('semantic-enable-qa').checked = true;
             document.getElementById('semantic-enable-topics').checked = true;
             document.getElementById('semantic-enable-profiles').checked = true;

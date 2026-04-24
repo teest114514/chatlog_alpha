@@ -263,7 +263,6 @@ func (c *Context) GetSemanticConfig() *conf.SemanticConfig {
 	cfg := conf.NormalizeSemanticConfig(c.Semantic)
 	cfg.Enabled = true
 	cfg.EnableRerank = true
-	cfg.EnableSemanticPush = true
 	cfg.EnableQA = true
 	cfg.EnableTopics = true
 	cfg.EnableProfiles = true
@@ -451,7 +450,6 @@ func (c *Context) SetSemanticConfig(cfg conf.SemanticConfig) {
 	cfg = conf.NormalizeSemanticConfig(cfg)
 	cfg.Enabled = true
 	cfg.EnableRerank = true
-	cfg.EnableSemanticPush = true
 	cfg.EnableQA = true
 	cfg.EnableTopics = true
 	cfg.EnableProfiles = true

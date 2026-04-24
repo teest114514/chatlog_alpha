@@ -223,7 +223,6 @@ type semanticConfigReq struct {
 	ChatTemperature     float64 `json:"chat_temperature"`
 	EmbeddingDimension  int     `json:"embedding_dimension"`
 	EnableRerank        bool    `json:"enable_rerank"`
-	EnableSemanticPush  bool    `json:"enable_semantic_push"`
 	EnableQA            bool    `json:"enable_qa"`
 	EnableTopics        bool    `json:"enable_topics"`
 	EnableProfiles      bool    `json:"enable_profiles"`
@@ -253,7 +252,6 @@ func (s *Service) handleSemanticConfigGet(c *gin.Context) {
 		"chat_temperature":     norm.ChatTemperature,
 		"embedding_dimension":  norm.EmbeddingDimension,
 		"enable_rerank":        norm.EnableRerank,
-		"enable_semantic_push": norm.EnableSemanticPush,
 		"enable_qa":            norm.EnableQA,
 		"enable_topics":        norm.EnableTopics,
 		"enable_profiles":      norm.EnableProfiles,
@@ -283,7 +281,6 @@ func (s *Service) handleSemanticConfigSet(c *gin.Context) {
 		ChatTemperature:     req.ChatTemperature,
 		EmbeddingDimension:  req.EmbeddingDimension,
 		EnableRerank:        true,
-		EnableSemanticPush:  true,
 		EnableQA:            true,
 		EnableTopics:        true,
 		EnableProfiles:      true,
@@ -1879,6 +1876,10 @@ func parseSemanticWindow(raw string) (string, string, time.Time, time.Time) {
 		return "7d", "近7天", todayStart.AddDate(0, 0, -6), now
 	case "30d", "month", "1m":
 		return "30d", "近1月", todayStart.AddDate(0, 0, -29), now
+	case "90d", "quarter", "3m":
+		return "90d", "近季度", todayStart.AddDate(0, -3, 0), now
+	case "1y", "year":
+		return "1y", "近1年", todayStart.AddDate(-1, 0, 0), now
 	case "all":
 		return "all", "全部", time.Time{}, time.Time{}
 	default:

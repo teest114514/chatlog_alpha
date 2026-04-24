@@ -28,7 +28,6 @@ type SemanticConfig struct {
 	ChatTemperature     float64 `mapstructure:"chat_temperature" json:"chat_temperature"`
 	EmbeddingDimension  int     `mapstructure:"embedding_dimension" json:"embedding_dimension"`
 	EnableRerank        bool    `mapstructure:"enable_rerank" json:"enable_rerank"`
-	EnableSemanticPush  bool    `mapstructure:"enable_semantic_push" json:"enable_semantic_push"`
 	EnableQA            bool    `mapstructure:"enable_qa" json:"enable_qa"`
 	EnableTopics        bool    `mapstructure:"enable_topics" json:"enable_topics"`
 	EnableProfiles      bool    `mapstructure:"enable_profiles" json:"enable_profiles"`
