@@ -242,7 +242,12 @@ func (s *Store) ChunkCount(model string, dim int) (int, error) {
 }
 
 func (s *Store) PreviewIndex(kind, model string, dim, limit, offset int) (IndexPreview, error) {
+	return s.PreviewIndexScoped(kind, "", model, dim, limit, offset)
+}
+
+func (s *Store) PreviewIndexScoped(kind, talker, model string, dim, limit, offset int) (IndexPreview, error) {
 	kind = strings.TrimSpace(strings.ToLower(kind))
+	talker = strings.TrimSpace(talker)
 	if kind == "" {
 		kind = "message"
 	}
@@ -271,15 +276,15 @@ func (s *Store) PreviewIndex(kind, model string, dim, limit, offset int) (IndexP
 		msgLimit := maxInt(1, limit/3)
 		entityLimit := maxInt(1, limit/3)
 		chunkLimit := maxInt(1, limit-msgLimit-entityLimit)
-		msgTotal, err := s.previewCount(`semantic_embeddings`, model, dim)
+		msgTotal, err := s.previewCountScoped(`semantic_embeddings`, talker, model, dim)
 		if err != nil {
 			return out, err
 		}
-		entityTotal, err := s.previewCount(`semantic_entities`, model, dim)
+		entityTotal, err := s.previewEntityCountScoped(talker, model, dim)
 		if err != nil {
 			return out, err
 		}
-		chunkTotal, err := s.previewCount(`semantic_chunks`, model, dim)
+		chunkTotal, err := s.previewCountScoped(`semantic_chunks`, talker, model, dim)
 		if err != nil {
 			return out, err
 		}
@@ -289,15 +294,15 @@ func (s *Store) PreviewIndex(kind, model string, dim, limit, offset int) (IndexP
 			{Name: "entity", Count: entityTotal},
 			{Name: "chunk", Count: chunkTotal},
 		}
-		msgItems, err := s.previewMessages(model, dim, msgLimit, offset)
+		msgItems, err := s.previewMessages(talker, model, dim, msgLimit, offset)
 		if err != nil {
 			return out, err
 		}
-		entityItems, err := s.previewEntities(model, dim, entityLimit, offset)
+		entityItems, err := s.previewEntities(talker, model, dim, entityLimit, offset)
 		if err != nil {
 			return out, err
 		}
-		chunkItems, err := s.previewChunks(model, dim, chunkLimit, offset)
+		chunkItems, err := s.previewChunks(talker, model, dim, chunkLimit, offset)
 		if err != nil {
 			return out, err
 		}
@@ -306,51 +311,51 @@ func (s *Store) PreviewIndex(kind, model string, dim, limit, offset int) (IndexP
 		out.Items = append(out.Items, chunkItems...)
 	case "entity", "entities":
 		out.Kind = "entity"
-		total, err := s.previewCount(`semantic_entities`, model, dim)
+		total, err := s.previewEntityCountScoped(talker, model, dim)
 		if err != nil {
 			return out, err
 		}
 		out.Total = total
-		groups, err := s.previewGroups(`SELECT entity_type, COUNT(1) FROM semantic_entities WHERE model=? AND dim=? GROUP BY entity_type ORDER BY COUNT(1) DESC`, model, dim)
+		groups, err := s.previewEntityGroups(talker, model, dim)
 		if err != nil {
 			return out, err
 		}
 		out.Groups = groups
-		items, err := s.previewEntities(model, dim, limit, offset)
+		items, err := s.previewEntities(talker, model, dim, limit, offset)
 		if err != nil {
 			return out, err
 		}
 		out.Items = items
 	case "chunk", "chunks":
 		out.Kind = "chunk"
-		total, err := s.previewCount(`semantic_chunks`, model, dim)
+		total, err := s.previewCountScoped(`semantic_chunks`, talker, model, dim)
 		if err != nil {
 			return out, err
 		}
 		out.Total = total
-		groups, err := s.previewGroups(`SELECT chunk_type, COUNT(1) FROM semantic_chunks WHERE model=? AND dim=? GROUP BY chunk_type ORDER BY COUNT(1) DESC`, model, dim)
+		groups, err := s.previewGroupsScoped(`semantic_chunks`, `chunk_type`, talker, model, dim)
 		if err != nil {
 			return out, err
 		}
 		out.Groups = groups
-		items, err := s.previewChunks(model, dim, limit, offset)
+		items, err := s.previewChunks(talker, model, dim, limit, offset)
 		if err != nil {
 			return out, err
 		}
 		out.Items = items
 	default:
 		out.Kind = "message"
-		total, err := s.previewCount(`semantic_embeddings`, model, dim)
+		total, err := s.previewCountScoped(`semantic_embeddings`, talker, model, dim)
 		if err != nil {
 			return out, err
 		}
 		out.Total = total
-		groups, err := s.previewGroups(`SELECT CAST(msg_type AS TEXT), COUNT(1) FROM semantic_embeddings WHERE model=? AND dim=? GROUP BY msg_type ORDER BY COUNT(1) DESC`, model, dim)
+		groups, err := s.previewGroupsScoped(`semantic_embeddings`, `CAST(msg_type AS TEXT)`, talker, model, dim)
 		if err != nil {
 			return out, err
 		}
 		out.Groups = groups
-		items, err := s.previewMessages(model, dim, limit, offset)
+		items, err := s.previewMessages(talker, model, dim, limit, offset)
 		if err != nil {
 			return out, err
 		}
@@ -371,8 +376,85 @@ func (s *Store) previewCount(table, model string, dim int) (int, error) {
 	return n, nil
 }
 
+func (s *Store) previewCountScoped(table, talker, model string, dim int) (int, error) {
+	talker = strings.TrimSpace(talker)
+	query := `SELECT COUNT(1) FROM ` + table + ` WHERE model=? AND dim=?`
+	args := []any{model, dim}
+	if talker != "" {
+		query += ` AND talker=?`
+		args = append(args, talker)
+	}
+	row := s.db.QueryRow(query, args...)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func (s *Store) previewEntityCountScoped(talker, model string, dim int) (int, error) {
+	talker = strings.TrimSpace(talker)
+	query := `SELECT COUNT(1) FROM semantic_entities WHERE model=? AND dim=?`
+	args := []any{model, dim}
+	if talker != "" {
+		query += ` AND (scope_talker=? OR username=? OR entity_type='chatroom' AND username=?)`
+		args = append(args, talker, talker, talker)
+	}
+	row := s.db.QueryRow(query, args...)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 func (s *Store) previewGroups(query, model string, dim int) ([]IndexPreviewGroup, error) {
 	rows, err := s.db.Query(query, model, dim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []IndexPreviewGroup{}
+	for rows.Next() {
+		var name string
+		var count int
+		if err := rows.Scan(&name, &count); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(name) == "" {
+			name = "-"
+		}
+		out = append(out, IndexPreviewGroup{Name: name, Count: count})
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) previewGroupsScoped(table, expr, talker, model string, dim int) ([]IndexPreviewGroup, error) {
+	talker = strings.TrimSpace(talker)
+	query := `SELECT ` + expr + `, COUNT(1) FROM ` + table + ` WHERE model=? AND dim=?`
+	args := []any{model, dim}
+	if talker != "" {
+		query += ` AND talker=?`
+		args = append(args, talker)
+	}
+	query += ` GROUP BY ` + expr + ` ORDER BY COUNT(1) DESC`
+	return s.previewGroupsWithArgs(query, args...)
+}
+
+func (s *Store) previewEntityGroups(talker, model string, dim int) ([]IndexPreviewGroup, error) {
+	talker = strings.TrimSpace(talker)
+	query := `SELECT entity_type, COUNT(1) FROM semantic_entities WHERE model=? AND dim=?`
+	args := []any{model, dim}
+	if talker != "" {
+		query += ` AND (scope_talker=? OR username=? OR entity_type='chatroom' AND username=?)`
+		args = append(args, talker, talker, talker)
+	}
+	query += ` GROUP BY entity_type ORDER BY COUNT(1) DESC`
+	return s.previewGroupsWithArgs(query, args...)
+}
+
+func (s *Store) previewGroupsWithArgs(query string, args ...any) ([]IndexPreviewGroup, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -429,12 +511,18 @@ func (s *Store) LoadContentHashes(talker, model string, dim int) (map[int64]stri
 	return out, rows.Err()
 }
 
-func (s *Store) previewMessages(model string, dim, limit, offset int) ([]IndexPreviewItem, error) {
-	rows, err := s.db.Query(`SELECT talker, seq, sender, msg_type, ts, content, model, dim, vector_json, updated_at
+func (s *Store) previewMessages(talker, model string, dim, limit, offset int) ([]IndexPreviewItem, error) {
+	query := `SELECT talker, seq, sender, msg_type, ts, content, model, dim, vector_json, updated_at
 FROM semantic_embeddings
-WHERE model=? AND dim=?
-ORDER BY ts DESC
-LIMIT ? OFFSET ?`, model, dim, limit, offset)
+WHERE model=? AND dim=?`
+	args := []any{model, dim}
+	if strings.TrimSpace(talker) != "" {
+		query += ` AND talker=?`
+		args = append(args, strings.TrimSpace(talker))
+	}
+	query += ` ORDER BY ts DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -466,12 +554,19 @@ LIMIT ? OFFSET ?`, model, dim, limit, offset)
 	return out, rows.Err()
 }
 
-func (s *Store) previewEntities(model string, dim, limit, offset int) ([]IndexPreviewItem, error) {
-	rows, err := s.db.Query(`SELECT entity_type, username, scope_talker, display, content, model, dim, vector_json, updated_at
+func (s *Store) previewEntities(talker, model string, dim, limit, offset int) ([]IndexPreviewItem, error) {
+	query := `SELECT entity_type, username, scope_talker, display, content, model, dim, vector_json, updated_at
 FROM semantic_entities
-WHERE model=? AND dim=?
-ORDER BY updated_at DESC
-LIMIT ? OFFSET ?`, model, dim, limit, offset)
+WHERE model=? AND dim=?`
+	args := []any{model, dim}
+	if strings.TrimSpace(talker) != "" {
+		talker = strings.TrimSpace(talker)
+		query += ` AND (scope_talker=? OR username=? OR entity_type='chatroom' AND username=?)`
+		args = append(args, talker, talker, talker)
+	}
+	query += ` ORDER BY updated_at DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -501,12 +596,18 @@ LIMIT ? OFFSET ?`, model, dim, limit, offset)
 	return out, rows.Err()
 }
 
-func (s *Store) previewChunks(model string, dim, limit, offset int) ([]IndexPreviewItem, error) {
-	rows, err := s.db.Query(`SELECT chunk_id, chunk_type, talker, start_seq, end_seq, start_ts, end_ts, content, model, dim, vector_json, updated_at
+func (s *Store) previewChunks(talker, model string, dim, limit, offset int) ([]IndexPreviewItem, error) {
+	query := `SELECT chunk_id, chunk_type, talker, start_seq, end_seq, start_ts, end_ts, content, model, dim, vector_json, updated_at
 FROM semantic_chunks
-WHERE model=? AND dim=?
-ORDER BY end_ts DESC
-LIMIT ? OFFSET ?`, model, dim, limit, offset)
+WHERE model=? AND dim=?`
+	args := []any{model, dim}
+	if strings.TrimSpace(talker) != "" {
+		query += ` AND talker=?`
+		args = append(args, strings.TrimSpace(talker))
+	}
+	query += ` ORDER BY end_ts DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

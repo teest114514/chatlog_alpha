@@ -184,11 +184,15 @@ func (m *Manager) Status() IndexStatus {
 }
 
 func (m *Manager) PreviewIndex(kind string, limit, offset int) (IndexPreview, error) {
+	return m.PreviewIndexScoped(kind, "", limit, offset)
+}
+
+func (m *Manager) PreviewIndexScoped(kind, talker string, limit, offset int) (IndexPreview, error) {
 	cfg := m.currentConfig()
 	if !cfg.Enabled {
 		return IndexPreview{}, fmt.Errorf("semantic is disabled")
 	}
-	return m.store.PreviewIndex(kind, cfg.EmbeddingModel, cfg.EmbeddingDimension, limit, offset)
+	return m.store.PreviewIndexScoped(kind, talker, cfg.EmbeddingModel, cfg.EmbeddingDimension, limit, offset)
 }
 
 func (m *Manager) Rebuild(ctx context.Context, reset bool) error {

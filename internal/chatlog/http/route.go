@@ -370,9 +370,10 @@ func (s *Service) handleSemanticIndexPreview(c *gin.Context) {
 		return
 	}
 	kind := strings.TrimSpace(c.Query("kind"))
+	talker := strings.TrimSpace(c.Query("talker"))
 	limit := parseIntDefault(c.Query("limit"), 20)
 	offset := parseIntDefault(c.Query("offset"), 0)
-	preview, err := s.semantic.PreviewIndex(kind, limit, offset)
+	preview, err := s.semantic.PreviewIndexScoped(kind, talker, limit, offset)
 	if err != nil {
 		errors.Err(c, err)
 		return

@@ -1395,6 +1395,11 @@
                             <option value="chunk">Chunk 向量</option>
                         </select>
                         <input type="number" id="semantic-preview-limit" value="20" min="1" max="100" style="max-width:110px;">
+                        <input type="text" id="semantic-preview-session-search" placeholder="搜索 session / 群 / 联系人" oninput="renderSemanticPreviewSessionOptions()" style="max-width:220px;">
+                        <select id="semantic-preview-session" onchange="selectSemanticPreviewSession(this.value)" style="max-width:260px;">
+                            <option value="">全部 session</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="clearSemanticPreviewSession()">全部 session</button>
                         <button class="btn btn-secondary" onclick="loadSemanticIndexPreview()">刷新预览</button>
                     </div>
                     <div id="semantic-index-preview" class="text-sm text-gray">点击“刷新预览”查看当前索引库中的向量化内容。</div>
@@ -1902,6 +1907,7 @@
         let semanticActiveMetaId = '';
         let semanticActiveEvidenceId = '';
         let semanticEntityOverride = '';
+        let semanticPreviewTalker = '';
         let semanticPreviewMapState = { yaw: -0.65, pitch: 0.45, dragging: false, lastX: 0, lastY: 0, items: [], kind: 'message' };
         let dashboardSessions = [];
         let dashboardGroupStats = [];
@@ -3578,6 +3584,7 @@
                 const data = await res.json();
                 semanticRecentSessions = Array.isArray(data.sessions) ? data.sessions : [];
                 renderSemanticSourceSessions();
+                renderSemanticPreviewSessionOptions();
             } catch (e) {
                 box.innerHTML = `<div class="text-danger text-sm">会话加载失败: ${escapeHtml(e.message)}</div>`;
             }
@@ -3618,6 +3625,42 @@
                 source_limit: parseInt(document.getElementById('semantic-source-limit')?.value || '50', 10) || 50,
                 window: document.getElementById('semantic-window')?.value || 'all'
             };
+        }
+
+        function renderSemanticPreviewSessionOptions() {
+            const select = document.getElementById('semantic-preview-session');
+            if (!select) return;
+            const q = String(document.getElementById('semantic-preview-session-search')?.value || '').trim().toLowerCase();
+            const sessions = (semanticRecentSessions || [])
+                .filter(item => {
+                    if (!q) return true;
+                    return [item.chat, item.username, item.chat_type, item.summary].some(v => String(v || '').toLowerCase().includes(q));
+                })
+                .slice(0, 80);
+            const current = semanticPreviewTalker;
+            select.innerHTML = '<option value="">全部 session</option>' + sessions.map(item => {
+                const username = String(item.username || '');
+                const label = `${item.chat || username || '未知会话'} · ${item.chat_type || '-'} · ${item.time || ''}`;
+                return `<option value="${escapeHtml(username)}"${username === current ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+            }).join('');
+            if (current && !sessions.some(item => String(item.username || '') === current)) {
+                select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)}</option>`);
+            }
+        }
+
+        function selectSemanticPreviewSession(talker) {
+            semanticPreviewTalker = String(talker || '').trim();
+            loadSemanticIndexPreview();
+        }
+
+        function clearSemanticPreviewSession() {
+            semanticPreviewTalker = '';
+            const input = document.getElementById('semantic-preview-session-search');
+            const select = document.getElementById('semantic-preview-session');
+            if (input) input.value = '';
+            if (select) select.value = '';
+            renderSemanticPreviewSessionOptions();
+            loadSemanticIndexPreview();
         }
 
         function semanticRetrievalDepth() {
@@ -3940,6 +3983,7 @@
             box.innerHTML = '<div class="text-sm text-gray">正在加载索引内容...</div>';
             try {
                 const params = new URLSearchParams({ kind, limit: String(limit), format: 'json' });
+                if (semanticPreviewTalker) params.set('talker', semanticPreviewTalker);
                 const res = await fetch(`/api/v1/semantic/index/preview?${params.toString()}`);
                 if (!res.ok) throw new Error(await res.text());
                 renderSemanticIndexPreview(await res.json());
@@ -3967,7 +4011,7 @@
                 </div>` : '<div class="text-sm text-gray">暂无分布统计。</div>';
             const rowsHtml = items.length ? items.map(item => renderSemanticPreviewItem(item, data.kind)).join('') : '<div class="text-sm text-gray">暂无索引内容。</div>';
             box.innerHTML = `
-                <div class="text-sm">类型: ${escapeHtml(data.kind || '-')} | 模型: ${escapeHtml(data.model || '-')} | 维度: ${Number(data.dim || 0)} | 总数: ${Number(data.total || 0)} | 展示: ${items.length}</div>
+                <div class="text-sm">类型: ${escapeHtml(data.kind || '-')} | Session: ${escapeHtml(semanticPreviewTalker || '全部')} | 模型: ${escapeHtml(data.model || '-')} | 维度: ${Number(data.dim || 0)} | 总数: ${Number(data.total || 0)} | 展示: ${items.length}</div>
                 ${groupHtml}
                 <div style="margin:10px 0 12px;border:1px solid var(--border);border-radius:12px;background:linear-gradient(180deg,#f8fafc,#ffffff);padding:10px;">
                     <div class="text-sm text-gray" style="margin-bottom:8px;">3D 语义空间投影：拖拽旋转，滚轮缩放。坐标是高维向量的确定性随机投影，仅用于观察相对分布。</div>
@@ -4044,13 +4088,12 @@
             const dim = `dim=${item.dim || 0}`;
             if (kind === 'entity') return `${dim} | username=${item.username || '-'} | scope=${item.scope_talker || '-'}`;
             if (kind === 'chunk') return `${dim} | ${formatTimestamp(item.start_time)} ~ ${formatTimestamp(item.end_time)}`;
-            return `${dim} | sender=${item.sender || '-'} | ${formatTimestamp(item.time)} | msg_type=${item.entity_type || '-'}`;
+            return `${dim} | sender=${item.sender || '-'} | ${formatTimestamp(item.time)} | msg_type=${semanticMsgTypeName(item.entity_type || '-')}`;
         }
 
         function previewGroupName(kind, name) {
             if (kind === 'message') {
-                const map = { '1': '文本', '3': '图片', '34': '语音', '43': '视频', '47': '表情', '49': '分享/文件' };
-                return map[String(name)] || `类型 ${name}`;
+                return semanticMsgTypeName(name);
             }
             if (kind === 'entity') {
                 const map = { contact: '联系人', chatroom: '群聊', room_member: '群成员' };
@@ -4666,15 +4709,20 @@
         }
 
         function semanticMsgTypeName(t) {
+            t = String(t || '').trim();
             const map = {
                 '1': '文本',
                 '3': '图片',
+                '42': '名片',
                 '34': '语音',
                 '43': '视频',
-                '49': '文件/分享',
+                '47': '表情',
+                '48': '位置',
+                '49': '分享/文件',
+                '50': '语音通话',
                 '10000': '系统'
             };
-            return map[t] || `类型${t}`;
+            return map[t] || (t && t !== '-' ? `未知类型 ${t}` : '-');
         }
 
         async function openDBViewer(groupEncoded, fileEncoded) {

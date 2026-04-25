@@ -14,6 +14,7 @@
 - 实体候选优化：联系人/群成员候选会按精确匹配、群内命中、模糊匹配、向量召回分层排序，并合并同一实体来源，减少短昵称误匹配和不必要的歧义提示。
 - 前端新增向量化内容可视化：可在“配置与索引管理”中预览消息向量、实体向量和 Chunk 向量的入库文本、类型分布、向量维度、范数、前若干维条形图，并将样本向量投影到可拖拽旋转的模拟 3D 语义空间中观察聚类和离群点。
 - 向量化内容可视化增强：支持 `message/entity/chunk` 混合视图，自动按最近邻距离标记疑似离群点；Chunk 视图会按同一会话绘制时间轨迹线，用于观察语义片段是否连续。
+- 向量化内容可视化支持按 session 快捷筛选：可搜索最近会话并选择群聊/联系人，只查看该会话的 message、chunk 和关联 entity；Chunk 轨迹会聚焦到选中会话。
 - 实验性功能页移除“只检索证据”入口，保留聊天式问答并继续在回答中展示证据。
 - 仪表盘热点摘要改为手动触发，点击“生成摘要”后才调用 `summary=1` 和 GLM，避免进入仪表盘或切换时间窗时自动消耗 LLM 请求。
 
@@ -352,8 +353,9 @@ YAML 可读性优化：
     - 增量状态：`last_incremental_at` / `last_incremental_added` / `last_incremental_error`
     - 重排序状态：`last_rerank_at` / `last_rerank_applied` / `last_rerank_error`
   - `pending` 仅表示未处理会话数；构建进度按 `processed + failed` 计算，失败项会单独展示。
-- 索引内容预览：`GET /api/v1/semantic/index/preview?kind=message|entity|chunk|all&limit=20`
+- 索引内容预览：`GET /api/v1/semantic/index/preview?kind=message|entity|chunk|all&limit=20&talker=...`
   - 返回入库文本、类型分布、向量维度、向量范数、前若干维样本、3D 投影坐标和离群点评分，不返回完整高维向量。
+  - `talker` 可选；传入 session username 后，message/chunk 按会话过滤，entity 返回该会话相关实体。
 - 重建索引：`POST /api/v1/semantic/index/rebuild`
   - `reset=0`（默认）：断点续传，继续上次中断进度
   - `reset=1`：从头重建（先清空索引）
