@@ -350,7 +350,12 @@ func (s *Service) callCompatEndpoint(path string, q url.Values) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	// History queries against large message DBs routinely take 30-90 seconds
+	// (the handler re-decrypts source DBs from disk, scans up to GBs of
+	// media_0.db, etc.). The previous 30s here caused every MCP wx_history
+	// call to fail under realistic workloads even though the underlying
+	// HTTP /api/v1/history would eventually return 200.
+	resp, err := (&http.Client{Timeout: 300 * time.Second}).Do(req)
 	if err != nil {
 		return "", err
 	}
