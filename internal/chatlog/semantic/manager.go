@@ -1022,6 +1022,20 @@ func (m *Manager) buildAll(ctx context.Context, cfg conf.SemanticConfig, mode st
 
 	talkers := make([]string, 0, len(sessions.Items))
 	seen := map[string]struct{}{}
+	// If IndexChatrooms whitelist is set, build a lookup set for O(1) filtering.
+	// This lets the user limit indexing to a curated subset (e.g. the ~10 groups
+	// they actually monitor) even though the WeChat DB exposes 500+ talkers.
+	// Also useful as a bug-bypass: if one chatroom's SQL reads hang, exclude it.
+	var whitelist map[string]struct{}
+	if len(cfg.IndexChatrooms) > 0 {
+		whitelist = make(map[string]struct{}, len(cfg.IndexChatrooms))
+		for _, w := range cfg.IndexChatrooms {
+			w = strings.TrimSpace(w)
+			if w != "" {
+				whitelist[w] = struct{}{}
+			}
+		}
+	}
 	for _, sess := range sessions.Items {
 		if sess == nil {
 			continue
@@ -1029,6 +1043,11 @@ func (m *Manager) buildAll(ctx context.Context, cfg conf.SemanticConfig, mode st
 		talker := strings.TrimSpace(sess.UserName)
 		if talker == "" {
 			continue
+		}
+		if whitelist != nil {
+			if _, ok := whitelist[talker]; !ok {
+				continue
+			}
 		}
 		if _, ok := seen[talker]; ok {
 			continue
