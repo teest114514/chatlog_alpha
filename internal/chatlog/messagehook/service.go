@@ -120,6 +120,17 @@ func (s *Service) scanOnce() error {
 	if len(keywords) == 0 && !cfg.ForwardAll && len(forwardContacts) == 0 && len(forwardChatRooms) == 0 {
 		return nil
 	}
+	// Whitelist-mode fast path: if user configured ONLY forward_chatrooms /
+	// forward_contacts (no keywords, no forward_all), then we don't need to
+	// call GetMessages on every one of the (up to 300) sessions and let
+	// matchRules filter them inside scanTalker. Pre-filter to ONLY the
+	// whitelisted talkers up front. GetMessages on WeChat 4.x encrypted DBs
+	// is CPU-heavy (SQLCipher decrypt per row), so on a fully-loaded WeChat
+	// account this loop was previously the #1 CPU consumer of the chatlog
+	// process (~4-5 cores sustained). With whitelist pre-filter this drops
+	// to len(whitelist) queries / 2s = ~7 queries/2s = ~3 queries/sec in our
+	// typical config.
+	whitelistOnly := len(keywords) == 0 && !cfg.ForwardAll
 	sessions, err := s.db.GetSessions("", maxTalkerScan, 0)
 	if err != nil || sessions == nil {
 		return err
@@ -128,6 +139,18 @@ func (s *Service) scanOnce() error {
 	for _, sess := range sessions.Items {
 		if sess == nil || strings.TrimSpace(sess.UserName) == "" {
 			continue
+		}
+		if whitelistOnly {
+			// Skip sessions NOT in any whitelist — they couldn't possibly
+			// match downstream and the GetMessages call (which would happen
+			// inside scanTalker) is the expensive step we're avoiding.
+			talker := sess.UserName
+			talkerName := sess.NickName
+			inChatRooms := targetListContains(forwardChatRooms, talker, talkerName)
+			inContacts := targetListContains(forwardContacts, talker, talkerName)
+			if !inChatRooms && !inContacts {
+				continue
+			}
 		}
 		_ = s.scanTalker(now, sess.UserName, keywords, forwardContacts, forwardChatRooms, cfg)
 	}
