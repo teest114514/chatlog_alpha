@@ -200,6 +200,14 @@ func (s *Service) startSemanticIncrementalWatcher() {
 	if s.semantic == nil || s.db == nil {
 		return
 	}
+	// Gate ticker spawn on semantic.enabled. Without this gate the 3s ticker
+	// runs even when the user has explicitly turned semantic off, hammering
+	// CPU (3-6 cores observed) and acquiring SQL locks that block unrelated
+	// /api/v1/history reads. Audit fix #1 — see ouyadi/chatlog_alpha NOTES.
+	cfg := s.conf.GetSemanticConfig()
+	if !cfg.Enabled {
+		return
+	}
 	s.semanticWatchMu.Lock()
 	defer s.semanticWatchMu.Unlock()
 	if s.semanticWatchCancel != nil {

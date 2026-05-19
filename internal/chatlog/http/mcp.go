@@ -37,6 +37,7 @@ func (s *Service) initMCPServer() {
 	s.mcpServer.AddTool(WxSessionsTool, s.handleMCPWxSessions)
 	s.mcpServer.AddTool(WxHistoryTool, s.handleMCPWxHistory)
 	s.mcpServer.AddTool(WxSearchTool, s.handleMCPWxSearch)
+	s.mcpServer.AddTool(WxSemanticSearchTool, s.handleMCPWxSemanticSearch)
 	s.mcpServer.AddTool(WxUnreadTool, s.handleMCPWxUnread)
 	s.mcpServer.AddTool(WxMembersTool, s.handleMCPWxMembers)
 	s.mcpServer.AddTool(WxNewMessagesTool, s.handleMCPWxNewMessages)
@@ -147,6 +148,16 @@ var WxSearchTool = mcp.NewTool(
 	mcp.WithString("since", mcp.Description("开始时间戳（秒）")),
 	mcp.WithString("until", mcp.Description("结束时间戳（秒）")),
 	mcp.WithNumber("msg_type", mcp.Description("消息类型")),
+)
+var WxSemanticSearchTool = mcp.NewTool(
+	"wx_semantic_search",
+	mcp.WithDescription("语义检索（向量索引）: 支持跨群、跨长时间窗口的语义相关消息检索。比 wx_search 关键词匹配召回率高，适合找『过去30天讨论过INTC加仓的群』、『历史上某个KOL的所有发言』、『跨会话的某话题演变』等问题。Embedding 由本地 Ollama qwen3-embedding 提供。"),
+	mcp.WithString("query", mcp.Description("自然语言查询（可用中文，如 'INTC 加仓 止损'）"), mcp.Required()),
+	mcp.WithString("chats", mcp.Description("逗号分隔的 chatroom_id / 会话标识列表；省略 = 全部已索引会话")),
+	mcp.WithString("window", mcp.Description("时间窗口：1d/7d/30d/90d/1y；默认 30d")),
+	mcp.WithNumber("limit", mcp.Description("返回 top_k；默认按 depth 自适应")),
+	mcp.WithString("depth", mcp.Description("检索深度：shallow/normal/deep；默认 normal")),
+	mcp.WithBoolean("rerank", mcp.Description("是否启用 reranker 二次排序（更准但更慢）；默认 true")),
 )
 var WxUnreadTool = mcp.NewTool(
 	"wx_unread",
@@ -350,7 +361,12 @@ func (s *Service) callCompatEndpoint(path string, q url.Values) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	// History queries against large message DBs routinely take 30-90 seconds
+	// (the handler re-decrypts source DBs from disk, scans up to GBs of
+	// media_0.db, etc.). The previous 30s here caused every MCP wx_history
+	// call to fail under realistic workloads even though the underlying
+	// HTTP /api/v1/history would eventually return 200.
+	resp, err := (&http.Client{Timeout: 300 * time.Second}).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -520,6 +536,47 @@ func (s *Service) handleMCPWxSearch(ctx context.Context, request mcp.CallToolReq
 	}
 	setOptionalInt64(q, "msg_type", req.MsgType)
 	body, err := s.callCompatEndpoint("/api/v1/search", q)
+	if err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	return textResult(body), nil
+}
+
+func (s *Service) handleMCPWxSemanticSearch(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var req struct {
+		Query  string `json:"query"`
+		Chats  string `json:"chats"`
+		Window string `json:"window"`
+		Limit  int    `json:"limit"`
+		Depth  string `json:"depth"`
+		Rerank *bool  `json:"rerank"`
+	}
+	if err := request.BindArguments(&req); err != nil {
+		return errors.ErrMCPTool(err), nil
+	}
+	if strings.TrimSpace(req.Query) == "" {
+		return errors.ErrMCPTool(fmt.Errorf("query is required")), nil
+	}
+	q := url.Values{}
+	q.Set("query", req.Query)
+	if req.Chats != "" {
+		q.Set("chats", req.Chats)
+	}
+	if req.Window != "" {
+		q.Set("window", req.Window)
+	}
+	setOptionalInt(q, "limit", req.Limit)
+	if req.Depth != "" {
+		q.Set("depth", req.Depth)
+	}
+	if req.Rerank != nil {
+		if *req.Rerank {
+			q.Set("rerank", "1")
+		} else {
+			q.Set("rerank", "0")
+		}
+	}
+	body, err := s.callCompatEndpoint("/api/v1/semantic/search", q)
 	if err != nil {
 		return errors.ErrMCPTool(err), nil
 	}

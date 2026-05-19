@@ -52,6 +52,13 @@ type SemanticConfig struct {
 	EnableLLMChunk      bool    `mapstructure:"enable_llm_chunk" json:"enable_llm_chunk"`
 	RealtimeIndex       bool    `mapstructure:"realtime_index" json:"realtime_index"`
 	IndexWorkers        int     `mapstructure:"index_workers" json:"index_workers"`
+	// IndexChatrooms, if non-empty, limits semantic indexing to ONLY these
+	// chatroom/contact UserNames (e.g. "25462231499@chatroom"). Other talkers
+	// are skipped entirely. Useful when the WeChat DB has 500+ contacts but
+	// you only want semantic search over a curated subset, or when a specific
+	// talker hangs SQL reads and blocks the entire indexer pipeline.
+	// Empty slice = index everything (default behavior).
+	IndexChatrooms      []string `mapstructure:"index_chatrooms" json:"index_chatrooms"`
 	RecallK             int     `mapstructure:"recall_k" json:"recall_k"`
 	TopN                int     `mapstructure:"top_n" json:"top_n"`
 	SimilarityThreshold float64 `mapstructure:"similarity_threshold" json:"similarity_threshold"`

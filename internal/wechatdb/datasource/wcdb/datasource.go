@@ -131,9 +131,20 @@ func (ds *DataSource) GetMessages(ctx context.Context, startTime, endTime time.T
 
 	perTalkerLimit := 0
 	if limit > 0 {
+		// The 5x multiplier and floor exist to compensate for in-Go post-filters
+		// applied below (sender/keyword/time/dedup). When NO such filter is set,
+		// the SQL layer already returns exactly the right rows -- no need to
+		// over-fetch. With a 1000-row floor on a 1.9GB media+message DB, a caller
+		// asking for limit=2 was triggering a 500x amplification, which is the
+		// primary reason MCP wx_history calls take minutes.
+		hasPostFilter := sender != "" || keyword != ""
 		perTalkerLimit = (limit + offset) * 5
-		if perTalkerLimit < 1000 {
-			perTalkerLimit = 1000
+		minLimit := 20
+		if hasPostFilter {
+			minLimit = 1000
+		}
+		if perTalkerLimit < minLimit {
+			perTalkerLimit = minLimit
 		}
 		if perTalkerLimit > 50000 {
 			perTalkerLimit = 50000
