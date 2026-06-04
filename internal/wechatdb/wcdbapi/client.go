@@ -422,11 +422,19 @@ func tableMaxCreateTime(dbPath, tableName string) (int64, error) {
 func (c *Client) resolveDBPath(kind, path string) (string, error) {
 	if strings.TrimSpace(path) != "" {
 		p := strings.TrimSpace(path)
-		if !filepath.IsAbs(p) {
-			p = strings.TrimPrefix(strings.ReplaceAll(filepath.Clean(p), "\\", "/"), "db_storage/")
-			p = filepath.Join(c.dataDir, p)
+		// Security: the caller-supplied `file` must resolve to a path *inside*
+		// dataDir. Reject absolute paths and any ../ traversal, otherwise this
+		// is an arbitrary local SQLite read primitive (reachable over HTTP).
+		if filepath.IsAbs(p) {
+			return "", fmt.Errorf("invalid db path %q: absolute paths are not allowed", path)
 		}
-		return p, nil
+		p = strings.TrimPrefix(strings.ReplaceAll(filepath.Clean(p), "\\", "/"), "db_storage/")
+		joined := filepath.Join(c.dataDir, p)
+		if rel, err := filepath.Rel(c.dataDir, joined); err != nil ||
+			rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("invalid db path %q: escapes data directory", path)
+		}
+		return joined, nil
 	}
 	switch strings.ToLower(kind) {
 	case "session":

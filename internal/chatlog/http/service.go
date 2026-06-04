@@ -105,7 +105,7 @@ func NewService(conf Config, db *database.Service) *Service {
 		errors.RecoveryMiddleware(),
 		errors.ErrorHandlerMiddleware(),
 		gin.LoggerWithWriter(log.Logger, "/health"),
-		corsMiddleware(),
+		corsMiddleware(conf.GetHTTPAddr()),
 	)
 
 	s := &Service{
