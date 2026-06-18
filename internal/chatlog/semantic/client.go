@@ -21,6 +21,8 @@ import (
 const (
 	maxEmbeddingBatch       = 64
 	maxEmbeddingInputTokens = 3072
+	maxModelErrorBodyBytes  = 2 * 1024 * 1024
+	maxModelSuccessBytes    = 64 * 1024 * 1024
 	maxRerankTotalChars     = 30000 // GLM rerank limits query+documents to 32k chars
 	maxRerankDocs           = 80    // cap docs sent to reranker
 	maxOllamaRerankDocs     = 20    // local generation-based rerank is much slower than hosted rerank APIs
@@ -680,7 +682,20 @@ func (c *Client) doJSONRequest(ctx context.Context, apiKey, url string, reqBody 
 		return err
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	bodyLimit := int64(maxModelSuccessBytes)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyLimit = maxModelErrorBodyBytes
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(raw)) > bodyLimit {
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return fmt.Errorf("model http %d: response body exceeds %d bytes", resp.StatusCode, bodyLimit)
+		}
+		return fmt.Errorf("model response exceeds %d bytes", bodyLimit)
+	}
 	raw = bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF}) // utf-8 BOM guard
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("model http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
