@@ -95,6 +95,24 @@ macOS 当前实现会在微信启动时短暂安装 Hook，首个候选出现后
 
 压缩包同时包含 `README.md` 和 `LICENSE`。Release 页面还会附带未压缩的可执行文件。
 
+### 直接下载未压缩文件
+
+GitHub 的单文件下载不会携带 macOS 的 Unix 可执行权限位，因此直接下载
+`chatlog-darwin-arm64` 后需要先赋予执行权限：
+
+```bash
+curl -fL https://github.com/teest114514/chatlog_alpha/releases/download/latest/chatlog-darwin-arm64 \
+  -o chatlog-darwin-arm64
+chmod 755 chatlog-darwin-arm64
+# 浏览器下载带有隔离标记时执行；命令行 curl 下载通常没有该标记
+xattr -d com.apple.quarantine chatlog-darwin-arm64 2>/dev/null || true
+./chatlog-darwin-arm64 --help
+```
+
+更推荐下载上表中的 `.zip` 压缩包：其中的 `chatlog-darwin-arm64` 已保留 `755`
+权限，解压后可以直接运行。若终端提示 `permission denied`，重新执行
+`chmod 755 chatlog-darwin-arm64` 即可。
+
 不知道 macOS 架构时可执行：
 
 ```bash

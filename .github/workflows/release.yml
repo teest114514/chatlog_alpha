@@ -99,6 +99,17 @@ jobs:
               -o "dist/chatlog-darwin-${arch}" .
           done
 
+      - name: Smoke Test macOS Binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            binary="dist/chatlog-darwin-${arch}"
+            chmod 755 "${binary}"
+            test -x "${binary}"
+            "${binary}" --help >/dev/null
+          done
+
       - name: Package Archives
         shell: bash
         run: |
@@ -106,6 +117,7 @@ jobs:
           mkdir -p release
           short_sha="${GITHUB_SHA::7}"
           for arch in amd64 arm64; do
+            chmod 755 "dist/chatlog-darwin-${arch}"
             archive="release/chatlog_${short_sha}_darwin_${arch}.zip"
             /usr/bin/zip -j "${archive}" "dist/chatlog-darwin-${arch}" LICENSE README.md
           done
