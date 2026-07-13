@@ -101,7 +101,8 @@ func (s *Service) GetDataKey(info *wechat.Account) (string, error) {
 		return "", fmt.Errorf("no WeChat instance selected")
 	}
 
-	key, _, err := info.GetKey(context.Background())
+	ctx := context.WithValue(context.Background(), "data_key_only", true)
+	key, _, err := info.GetKey(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -111,11 +112,20 @@ func (s *Service) GetDataKey(info *wechat.Account) (string, error) {
 
 // GetImageKey extracts the image key from a WeChat process
 func (s *Service) GetImageKey(info *wechat.Account) (string, error) {
+	return s.GetImageKeyWithStatus(info, nil)
+}
+
+// GetImageKeyWithStatus extracts the image key and forwards detailed progress.
+func (s *Service) GetImageKeyWithStatus(info *wechat.Account, status func(string)) (string, error) {
 	if info == nil {
 		return "", fmt.Errorf("no WeChat instance selected")
 	}
 
-	return info.GetImageKey(context.Background())
+	ctx := context.Background()
+	if status != nil {
+		ctx = context.WithValue(ctx, "status_callback", status)
+	}
+	return info.GetImageKey(ctx)
 }
 
 func (s *Service) StartAutoDecrypt() error {

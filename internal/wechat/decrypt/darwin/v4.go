@@ -141,6 +141,9 @@ func (d *V4Decryptor) Validate(page1 []byte, key []byte) bool {
 	if writeVer > 2 || readVer > 2 || writeVer == 0 || readVer == 0 {
 		return false
 	}
+	if dec[21] != 64 || dec[22] != 32 || dec[23] != 32 {
+		return false
+	}
 	// reserved space should match SQLCipher reserve (IV+HMAC)
 	if dec[20] != byte(ReserveSize) && dec[20] != 0 {
 		// WeChat writes reserve=80; accept 0 only if other fields look sane.
@@ -149,7 +152,18 @@ func (d *V4Decryptor) Validate(page1 []byte, key []byte) bool {
 		}
 	}
 	textEnc := binary.BigEndian.Uint32(dec[56:60])
-	if textEnc != 1 && textEnc != 2 && textEnc != 3 {
+	if textEnc == 0 {
+		// SQLite leaves the encoding and schema-format fields at zero until
+		// the first schema object is created. WeChat ships several valid
+		// one-page databases in exactly this initialized-but-empty state (for
+		// example weclaw.db and solitaire.db). Keep the remaining checks strict
+		// so a wrong key cannot pass merely because encoding happens to be zero.
+		if binary.BigEndian.Uint32(dec[44:48]) != 0 ||
+			len(dec) < 108 || dec[100] != 13 ||
+			binary.BigEndian.Uint16(dec[103:105]) != 0 {
+			return false
+		}
+	} else if textEnc != 1 && textEnc != 2 && textEnc != 3 {
 		return false
 	}
 	return true

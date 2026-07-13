@@ -269,27 +269,39 @@ func (a *App) inputCapture(event *tcell.EventKey) *tcell.EventKey {
 }
 
 func (a *App) initMenu() {
-	getDataKey := &menu.Item{
+	getImageKey := &menu.Item{
 		Index:       2,
 		Name:        "获取图片密钥",
-		Description: "扫描内存获取图片密钥(需微信V4)",
+		Description: "优先本地推导；内存扫描回退可能需要额外权限（微信V4）",
 		Selected: func(i *menu.Item) {
 			modal := tview.NewModal()
-			modal.SetText("正在扫描内存获取图片密钥...\n请确保微信已登录并浏览过图片")
+			modal.SetText("获取图片密钥\n\n正在优先尝试本地推导...\n请确保微信已登录并浏览过图片")
 			a.mainPages.AddPage("modal", modal, true, true)
 			a.SetFocus(modal)
 
 			go func() {
-				err := a.m.GetImageKey()
+				usedAuthorization := false
+				onStatus := func(msg string) {
+					if strings.Contains(msg, "管理员授权窗口") || strings.Contains(msg, "临时管理员") {
+						usedAuthorization = true
+					}
+					text := "获取图片密钥\n\n当前状态：" + normalizeKeyProgressDetail(msg)
+					a.QueueUpdateDraw(func() {
+						modal.SetText(text)
+					})
+				}
+				err := a.m.GetImageKey(onStatus)
 
 				// 在主线程中更新UI
 				a.QueueUpdateDraw(func() {
 					if err != nil {
-						// 解密失败
-						modal.SetText("获取图片密钥失败: " + err.Error())
+						modal.SetText("获取图片密钥失败\n\n" + normalizeKeyProgressDetail(err.Error()) + "\n\n未保留管理员权限。")
 					} else {
-						// 解密成功
-						modal.SetText("获取图片密钥成功")
+						permissionResult := "✓ 本次无需管理员授权"
+						if usedAuthorization {
+							permissionResult = "✓ 临时权限子进程已退出"
+						}
+						modal.SetText("获取图片密钥成功\n\n✓ 图片密钥已保存\n" + permissionResult + "\n✓ TUI 仍以普通用户运行")
 					}
 
 					// 添加确认按钮
@@ -305,29 +317,27 @@ func (a *App) initMenu() {
 
 	restartAndGetDataKey := &menu.Item{
 		Index:       3,
-		Name:        "重启并获取密钥",
-		Description: "Frida Hook 提取数据库密钥（需 pip3 install frida-tools）",
+		Name:        "重启并获取数据库密钥",
+		Description: "仅用 Frida 提取 data key，不扫描图片密钥（无需 root）",
 		Selected: func(i *menu.Item) {
-			modal := tview.NewModal().SetText("正在准备重启微信...")
+			progress := newKeyExtractionProgress()
+			modal := tview.NewModal().SetText(progress.Update("[1/6] 检查 Frida 环境"))
 			a.mainPages.AddPage("modal", modal, true, true)
 			a.SetFocus(modal)
 
 			go func() {
 				// 定义状态更新回调
 				onStatus := func(msg string) {
+					text := progress.Update(msg)
 					a.QueueUpdateDraw(func() {
-						modal.SetText(msg)
+						modal.SetText(text)
 					})
 				}
 
 				err := a.m.RestartAndGetDataKey(onStatus)
 
 				a.QueueUpdateDraw(func() {
-					if err != nil {
-						modal.SetText("操作失败: " + err.Error())
-					} else {
-						modal.SetText("操作成功，请检查密钥是否已更新")
-					}
+					modal.SetText(progress.Finish(err))
 
 					modal.AddButtons([]string{"OK"})
 					modal.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
@@ -465,7 +475,7 @@ func (a *App) initMenu() {
 		Selected:    a.selectAccountSelected,
 	}
 
-	a.menu.AddItem(getDataKey)
+	a.menu.AddItem(getImageKey)
 	a.menu.AddItem(restartAndGetDataKey)
 	a.menu.AddItem(decryptData)
 	a.menu.AddItem(httpServer)

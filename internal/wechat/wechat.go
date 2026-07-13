@@ -218,6 +218,7 @@ func (a *Account) clearAccountData() {
 // GetKey 获取账号的密钥
 func (a *Account) GetKey(ctx context.Context) (string, string, error) {
 	forceRefresh, _ := ctx.Value("force_key_refresh").(bool)
+	dataOnly, _ := ctx.Value("data_key_only").(bool)
 	hasDataKey := a.Key != ""
 	hasImgKey := a.ImgKey != ""
 	isV4 := a.Version == 4
@@ -228,9 +229,13 @@ func (a *Account) GetKey(ctx context.Context) (string, string, error) {
 
 	// 1. 如果已有Data Key
 	if hasDataKey {
-		// 非V4，或者V4且有图片Key -> 完美，直接返回
-		if !isV4 || hasImgKey {
+		// A data-key-only caller must never fall through to image-key
+		// derivation or its privileged process-memory fallback.
+		if dataOnly || !isV4 || hasImgKey {
 			log.Info().Msgf("使用保存的密钥，账号: %s", a.Name)
+			if dataOnly {
+				return a.Key, "", nil
+			}
 			return a.Key, a.ImgKey, nil
 		}
 
@@ -367,7 +372,8 @@ func (a *Account) GetImageKey(ctx context.Context) (string, error) {
 // DecryptDatabase 解密数据库
 func (a *Account) DecryptDatabase(ctx context.Context, dbPath, outputPath string) error {
 	// 获取密钥
-	hexKey, _, err := a.GetKey(ctx)
+	dataKeyCtx := context.WithValue(ctx, "data_key_only", true)
+	hexKey, _, err := a.GetKey(dataKeyCtx)
 	if err != nil {
 		return err
 	}

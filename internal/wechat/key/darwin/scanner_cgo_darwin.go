@@ -451,6 +451,9 @@ func scanImageKeyCandidatesByPID(pid uint32) ([]string, int, error) {
 	var cCandidates C.int
 	ret := C.scan_wechat_img_key_candidates(C.int(pid), (*C.char)(buf), C.int(bufSize), &cCandidates)
 	if ret != 0 {
+		if int(ret) == -2 {
+			return nil, int(cCandidates), fmt.Errorf("%w: task_for_pid 返回 code=%d", ErrImageKeyPermission, int(ret))
+		}
 		return nil, int(cCandidates), fmt.Errorf("scan image key failed, code=%d (需要 root + task_for_pid 权限)", int(ret))
 	}
 
@@ -482,6 +485,9 @@ func scanImageAny16CandidatesByPID(pid uint32) ([]string, int, error) {
 	var cCandidates C.int
 	ret := C.scan_wechat_img_key_any16(C.int(pid), (*C.char)(buf), C.int(bufSize), &cCandidates)
 	if ret != 0 {
+		if int(ret) == -2 {
+			return nil, int(cCandidates), fmt.Errorf("%w: task_for_pid 返回 code=%d", ErrImageKeyPermission, int(ret))
+		}
 		return nil, int(cCandidates), fmt.Errorf("scan image key(any16) failed, code=%d (需要 root + task_for_pid 权限)", int(ret))
 	}
 
@@ -530,6 +536,9 @@ func scanImageKeyByPIDAndCiphertext(pid uint32, ciphertext []byte) (string, int,
 	case 0:
 		return "", int(cCandidates), nil
 	default:
+		if int(ret) == -2 {
+			return "", int(cCandidates), fmt.Errorf("%w: task_for_pid 返回 code=%d", ErrImageKeyPermission, int(ret))
+		}
 		return "", int(cCandidates), fmt.Errorf("scan image key(match) failed, code=%d (需要 root + task_for_pid 权限)", int(ret))
 	}
 }

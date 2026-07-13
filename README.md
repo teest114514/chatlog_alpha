@@ -1,711 +1,298 @@
-# chatlog_alpha
+# Chatlog Alpha
 
-微信 4.x 聊天记录本地查询工具，支持 `macOS` 与 `Windows`。
+[![Release](https://github.com/teest114514/chatlog_alpha/actions/workflows/release.yml/badge.svg)](https://github.com/teest114514/chatlog_alpha/actions/workflows/release.yml)
+[![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go)](https://go.dev/)
+[![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](#平台兼容性)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
-> **当前 macOS 实机验证微信版本：`4.1.11.54`（Mac 版）**。其他版本未保证可用。  
->
-> **Windows 用户请注意：** 当前 Windows 仍使用**进程内存扫描**提取 data key，**未完成充分实机测试，不保证能正常工作**。请优先在测试环境验证。  
-> 若你在 Windows 上使用：无论成功或失败，都欢迎通过 [GitHub Issues](https://github.com/teest114514/chatlog_alpha/issues) **反馈结果**（微信版本、是否提 key 成功、报错信息等），以便评估是否将 Windows 也升级为 **Frida Hook** 方式（与 macOS 对齐）。
+Chatlog Alpha 是面向微信 4.x 的本地聊天数据读取、查询与分析工具，提供：
 
-## 更新日志（近期）
+- 终端交互界面（TUI）
+- Web 管理与数据浏览界面
+- HTTP API 与 MCP 服务
+- 跨数据库搜索、仪表盘和媒体读取
+- 可选的语义检索、RAG 问答和时间知识图谱
+- 关键词事件与 Hermes Weixin / QQ 推送
 
-### 2026-07-10
+数据库解密、查询和缓存默认在本机执行。使用 GLM、DeepSeek 等远程模型时，相关功能会把选中的检索文本发送到你配置的模型服务；使用 Ollama 或兼容的本地 llama.cpp 服务时可保持模型处理在本机。
 
-- macOS 数据库密钥（data key）**仅支持 Frida Hook** `CCKeyDerivationPBKDF`；已移除 data key 内存扫描实现。
-- 默认用 LaunchServices `open -a WeChat` 拉起微信后再 attach，保留沙盒用户数据（避免 `frida.spawn` 裸二进制导致空账号）。
-- 解密链路改为 SQLCipher4：`PBKDF2-HMAC-SHA512`（256000 轮）派生后 AES-CBC 解页。
-- 新增 CLI：`chatlog key`；TUI「重启并获取密钥」走同一 Frida 路径。
-- 当前文档标注可运行微信版本为 **Mac 版 4.1.11.54**。
-- 本地 Embedding 兼容 **llama.cpp server**：`embedding_provider=ollama` 时自动探测  
-  `/api/embed` → `/v1/embeddings` → `/embeddings` → `/embedding`；可将 `ollama_base_url` 指到 `llama-server --embeddings`，无需 Ollama。
+> 当前重点验证环境：**macOS + 微信 Mac 版 4.1.11.54**。Windows 构建可用，但密钥提取仍属于实验性能力。
 
-### 2026-04-26
+## 目录
 
-- 实验性语义能力默认切换到本地 Ollama：embedding 默认 `qwen3-embedding:8b`，rerank 默认 `dengcao/Qwen3-Reranker-8B:Q5_K_M`，默认地址 `http://127.0.0.1:11434`。
-- GLM/DeepSeek 调整为可选 Chat provider：未配置 Chat API Key 时仍可进行向量索引、语义搜索和 Ollama 精排；会话问答、LLM 摘要和时间知识图谱抽取等 Chat 能力会提示配置后使用。
-- 前端“配置与索引管理”新增 Ollama Base URL、DeepSeek API Key/Base URL、Embedding/Rerank/Chat Provider 配置；切换 provider 时会自动同步对应默认模型名。
-- Ollama 调用新增串行调度：embedding、rerank、Ollama chat 共享同一执行锁，避免多个本地模型同时加载；同一阶段会复用已加载模型，阶段切换、任务结束或连通性测试结束后释放模型。
-- 向量索引和时间知识图谱状态新增处理速度与预计完成时长展示，便于判断本地 Ollama 或远程 LLM 任务是否需要暂停、调低并发或更换模型。
-- 修正 Ollama `qwen3-embedding:4b` 维度识别：自动使用 `2560` 维，避免索引已写入但覆盖会话、最近索引消息和检索按错误维度查空。
+- [平台兼容性](#平台兼容性)
+- [下载安装](#下载安装)
+- [macOS 快速开始](#macos-快速开始)
+- [Windows 快速开始](#windows-快速开始)
+- [源码构建](#源码构建)
+- [使用方式](#使用方式)
+- [HTTP API 与 MCP](#http-api-与-mcp)
+- [语义检索与时间知识图谱](#语义检索与时间知识图谱)
+- [权限与数据目录](#权限与数据目录)
+- [GitHub 自动构建](#github-自动构建)
+- [常见问题](#常见问题)
 
-### 2026-04-25
+## 主要功能
 
-- 新增“时间知识图谱”实验平台：支持聊天消息、业务数据和外部事件进入本地图谱抽取队列，自动维护实体、关系、事件、事实、证据和时间版本，并提供前端图谱可视化、时间线、事实关系列表和图谱问答。
-- 向量索引新增暂停/恢复：暂停会取消当前构建并保留断点，恢复后重建任务按断点续传继续；暂停状态下实时增量索引不会继续触发。
-- Chunk 索引增量优化：会话 chunk 不再每次整会话删除重建，会按 `content_hash` 只重算变化片段并清理过期 chunk，降低大群聊和 LLM Chunk 的重复向量化成本。
-- Chunk 尾部窗口优化：新增消息通常只从最后一个已索引 session chunk 的起点开始重建尾部片段，避免每次扫描整段超长会话。
-- 实体候选优化：联系人/群成员候选会按精确匹配、群内命中、模糊匹配、向量召回分层排序，并合并同一实体来源，减少短昵称误匹配和不必要的歧义提示。
-- 前端新增向量化内容可视化：可在“配置与索引管理”中预览消息向量、实体向量和 Chunk 向量的入库文本、类型分布、向量维度、范数、前若干维条形图，并将样本向量投影到可拖拽旋转的模拟 3D 语义空间中观察聚类和离群点。
-- 向量化内容可视化增强：支持 `message/entity/chunk` 混合视图，自动按最近邻距离标记疑似离群点；Chunk 视图会按同一会话绘制时间轨迹线，用于观察语义片段是否连续。
-- 向量化内容可视化支持按 session 快捷筛选：可搜索最近会话并选择群聊/联系人，只查看该会话的 message、chunk 和关联 entity；Chunk 轨迹会聚焦到选中会话。
-- 实验性功能页移除“只检索证据”入口，保留聊天式问答并继续在回答中展示证据。
-- 仪表盘热点摘要改为手动触发，点击“生成摘要”后才调用 `summary=1` 和 GLM，避免进入仪表盘或切换时间窗时自动消耗 LLM 请求。
+### 数据读取与查询
 
-### 2026-04-24
+- 自动发现微信账号和数据目录
+- 按数据库逐一验证并保存 `all_keys.json` 密钥映射
+- 支持消息、联系人、群聊、收藏、朋友圈等数据接口
+- 数据库表浏览、SQL 查询和跨库全局搜索
+- 自动处理 WAL，并维护本地解密查询缓存
+- 支持合法空数据库，例如 `weclaw.db`、`solitaire.db`
 
-- 移除语义匹配推送：关键词钩子移除基于 GLM Reranker 的语义匹配，仅保留字面 `strings.Contains` 关键词命中。
-- 仪表盘扩展：新增全局概览卡片（消息总量/活跃群数/参与人数/索引覆盖）、群聊对比卡片（点击跳转消息检索）、发言人排行榜（跨群 Top 15）、各群消息类型分组柱状图、24h 活跃度多线折线图、每日消息趋势柱状图、语义分析摘要（热点话题 + 隐私提醒）。
-- 仪表盘新增时间范围选择器：概览/对比/排行榜/类型/24h 共用一组，默认"今天"；趋势/摘要独立一组，默认"近 1 月"；均支持今天/近 7 天/近 1 月/近季度/近 1 年/全部快捷切换。
-- `parseSemanticWindow` 新增 `90d`（近季度）和 `1y`（近1年）支持，对齐前端时间选择器窗口。
-- 优化配置日志安全：TUI/HTTP 服务启动日志会对 `data_key`、`img_key`、`api_key`、`token`、`secret` 等敏感字段脱敏。
-- 优化语义增量索引：HTTP 服务启动后会主动执行一次增量索引，用于补齐程序关闭期间新增的聊天记录。
-- 优化向量索引状态口径：构建进度现在按“成功 + 失败 + 待处理”展示，`pending` 不再包含已失败项。
-- 优化前端数据库面板：数据库可查询性探测改为限流并发，避免数据库文件较多时瞬时请求过多。
-- 同步 TUI 帮助：补充仪表盘、推送页面、实验性语义能力和全局搜索入口。
-- GLM 实验性功能接入 `glm-5.1` Chat Completions：会话问答升级为基于检索证据的 LLM 回答，并显示引用证据。
-- 会话问答默认使用 GLM 流式输出，前端以打字机效果逐步展示回答。
-- 实验性功能页面重构为 GPT 网页端式聊天交互；模型配置、索引状态、删除索引、重建索引和参数调优统一收入对话框下方的“配置与索引管理”二级面板。
-- 语义问答/搜索的数据源改为“最近会话 -> username -> 时间窗聊天记录”的作用域逻辑，支持最近会话数量、指定单个 chat、勾选多个会话和时间窗过滤。
-- 会话问答新增 LLM 意图路由：GLM 会先输出受限 JSON 计划，系统再按 `sender_messages`、`sender_semantic_search`、`chat_summary`、`stats`、`keyword_search`、`semantic_search` 等 intent 调用结构化查询、LLM 摘要或向量 RAG；前端会显示本次 `intent/entity/topic/route` 调试信息。
-- 实体候选支持前端点击确认：存在重名或歧义时，下一次提问会带上确认后的 `username` 精确过滤发送者。
-- 直接查询支持 `answer_mode=list/summary/stats`：列表模式返回原始证据，摘要模式会基于结构化证据再调用 GLM 总结，空召回会返回明确原因。
-- 优化会话问答 RAG：自动补充命中消息前后上下文，支持前端多轮追问上下文，并强化证据防注入提示。
-- 调整 GLM Embedding 默认维度为 `2048`；embedding 批量请求按最多 64 条拆分，单条输入按 3072 token 近似上限截断。
-- 优化语义索引入库内容：过滤纯图片/视频/语音占位、语音通话、撤回消息和常见短确认，降低低信息消息对召回和主题分析的干扰。
-- 主题趋势和联系人画像在原图表/词频基础上新增 GLM-5.1 摘要，帮助解释趋势、画像和注意点。
-- 向量索引重建改为后台任务，接口会立即返回任务已接收，前端通过状态面板查看进度。
-- 增量索引改为“扫描会话、只重算新增或内容变更消息”，可覆盖旧消息后续补解析导致的内容变化。
-- 索引失败项改为部分可用：存在失败会话时，已完成索引仍可用于语义搜索/问答，失败会话会在状态中单独展示。
+### Web 与仪表盘
 
-### 2026-04-23
+- 会话、历史消息、联系人和群聊浏览
+- 群聊对比、消息趋势、活跃时段和发言人排行
+- 数据库浏览、全局搜索和媒体访问
+- 关键词推送配置与事件查看
+- 语义检索、问答、索引管理和时间知识图谱页面
 
-- 新增“实验性功能”页面，承载 `GLM 语义检索与重排序` 全量入口（配置、连通性测试、索引管理、语义搜索、会话问答、主题趋势、联系人画像）。
-- 语义能力改为索引就绪后可用；前端动作按钮会按索引状态自动禁用/启用。
-- 安全调整：`semantic api_key` 无默认值，`GET /api/v1/semantic/config` 不回显真实 key，仅返回 `has_api_key`；保存时留空会保留已存 key。
-- 索引状态增强：新增 `last_incremental_at / last_incremental_added / last_incremental_error` 与 `last_rerank_at / last_rerank_applied / last_rerank_error`。
-- 增量索引机制升级：除了搜索触发外，服务端新增后台自动监控（检测会话 `NOrder` 变化时自动触发增量构建）。
-- 优化向量召回利用率：语义搜索/问答候选池从“只取最近记录”改为“近期记录 + 时间分层抽样”，长时间窗和 `all` 查询能覆盖更早的历史消息；查询前兜底增量增加 30 秒节流，减少连续问答时重复索引检查。
-- 新增实体向量索引：联系人、群聊、群成员群昵称、备注名、昵称、微信号会独立向量化；问答路由解析实体时会融合精确匹配、模糊匹配和实体向量召回，减少昵称/别名不在消息正文中导致的漏匹配。
-- 新增 Chunk 级语义索引：同一会话会按动态边界（约 30 条/30 分钟、较长沉默间隔、低主题重叠）切分为会话 chunk，并额外生成时间段摘要 chunk、主题词 chunk；语义搜索/问答会融合单条消息召回和 chunk 召回，改善长讨论、跨多条消息主题无法被单条消息命中的问题。
-- RAG 问答增强：证据会先去重压缩；低置信度召回会拒答并提示缩小范围；回答 prompt 强制关键事实引用证据编号；前端证据表展示 `source/chunk_type/score/rerank_score`，便于判断答案可信度。
-- 主题趋势与联系人画像升级为图表展示（时间窗支持：今天、近 7 天、近 1 月、全部）。
-- 历史/检索接口口径修正：`history/search` 新增并统一 `total_count + limit + offset`，过滤改为“先过滤后分页”，修复小时过滤统计不一致问题。
+### 集成能力
 
-### 2026-04-22
+- HTTP API
+- MCP：`/mcp`、`/sse`、`/message`
+- Hermes Agent Weixin / QQ 推送
+- Ollama、llama.cpp、GLM、DeepSeek 模型配置
 
-- 微信关键词推送支持 Hermes Agent Weixin Channel，前端可读取/保存 Hermes 微信配置并做配置可用性检查。
-- 新增 Hermes Agent QQ 推送渠道，支持读取/保存 `QQ_APP_ID`、`QQ_CLIENT_SECRET`、`QQBOT_HOME_CHANNEL` 并通过 Hermes `QQAdapter` 发送文本与媒体。
-- 推送页面能力整合：支持关键词推送、实时全部转发、指定联系人转发、指定群聊转发，并展示各推送方式结果。
+## 平台兼容性
 
-### 2026-04-21
+| 平台 | 架构 | 数据库密钥方式 | 当前状态 |
+|---|---|---|---|
+| macOS | Intel `amd64` | Frida Hook `CCKeyDerivationPBKDF` | 已验证 |
+| macOS | Apple Silicon `arm64` | Frida Hook `CCKeyDerivationPBKDF` | 已验证 |
+| Windows | `amd64` | 微信进程内存扫描 | 实验性，建议管理员权限 |
+| Windows | `arm64` | 微信进程内存扫描 | 实验性，部分 CGO 能力受限 |
 
-- 朋友圈媒体代理解密增强：对齐参考实现修复 `keystream reverse` 与解密校验策略，降低“返回成功但媒体不可播放”概率。
-- 新增官方 WASM 优先解密链路（失败回退本地实现），提升视频号样本兼容性。
+macOS 当前实现会在微信启动时短暂安装 Hook，首个候选出现后继续收集约 5 秒，然后依次卸载脚本、断开会话并关闭 Frida 运行时。密钥会按数据库页实际验证，不再把一个未经验证的密钥直接分配给所有数据库。
 
-## 平台与能力
+## 下载安装
 
-| 能力 | macOS | Windows |
-|------|--------|---------|
-| 微信版本（已验证） | **Mac 4.1.11.54** | 未充分实机验证 |
-| 数据库 data key | **仅 Frida** Hook `CCKeyDerivationPBKDF` → `all_keys.json` | 进程内存扫描 → `all_keys.json` |
-| 图片 key | 内存扫描 / kvcomm 推导 | 内存扫描 |
-| 数据查询 | HTTP + MCP | HTTP + MCP |
-| 数据源 | 内置 `wcdb_api` 兼容链路 | 同左（实验性） |
+从 [Latest Build](https://github.com/teest114514/chatlog_alpha/releases/tag/latest) 下载与你的平台匹配的压缩包：
 
-其他能力：
+| 系统 | 处理器 | 文件名格式 |
+|---|---|---|
+| macOS | Apple Silicon | `chatlog_<提交>_darwin_arm64.zip` |
+| macOS | Intel | `chatlog_<提交>_darwin_amd64.zip` |
+| Windows | x64 | `chatlog_<提交>_windows_amd64.zip` |
+| Windows | ARM64 | `chatlog_<提交>_windows_arm64.zip` |
 
-- 全局搜索：跨库快速搜索 / 深度搜索
-- 朋友圈媒体：图片、视频、实况图代理解密
-- 关键词推送：前端/TUI，MCP / POST / Hermes 微信 / Hermes QQ
-- 时间知识图谱：业务/事件推送、聊天抽取、关系演化、证据链、时间线与图谱问答
+压缩包同时包含 `README.md` 和 `LICENSE`。Release 页面还会附带未压缩的可执行文件。
 
-## 兼容微信版本
-
-| 平台 | 版本 | 说明 |
-|------|------|------|
-| **macOS** | **4.1.11.54** | 当前仓库 data key（Frida）与解密链路的**已验证**版本 |
-| macOS | 其他 4.x | 未保证；微信升级后 PBKDF/布局可能变化 |
-| Windows | 4.x | 仍为内存扫描，**未保证可用**；欢迎 [Issue 反馈](https://github.com/teest114514/chatlog_alpha/issues) 是否需改 Frida |
-
-查看本机微信版本（macOS）：
+不知道 macOS 架构时可执行：
 
 ```bash
-defaults read /Applications/WeChat.app/Contents/Info.plist CFBundleShortVersionString
-# 或
-/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/WeChat.app/Contents/Info.plist
+uname -m
 ```
 
-## macOS 数据库密钥提取（Frida only）
+- 输出 `arm64`：下载 `darwin_arm64`
+- 输出 `x86_64`：下载 `darwin_amd64`
 
-macOS 上 **唯一** 的 data key 获取方式：
+## macOS 快速开始
 
-1. 结束当前微信  
-2. 用 LaunchServices **`open -a WeChat`** 正常启动（挂上沙盒容器，保留原账号数据）  
-3. Frida **尽快 attach**，Hook 系统库 `CCKeyDerivationPBKDF`  
-4. 在自动登录 / 打开数据库时捕获 32 字节 passphrase，写入 `all_keys.json`  
+### 1. 准备微信数据
 
-解密使用 SQLCipher4：`PBKDF2-HMAC-SHA512`（256000 轮）派生后 AES-CBC 解页。
+1. 安装并登录微信 Mac 版。
+2. 如需手机历史记录，在手机微信中进入：`我 → 设置 → 通用 → 聊天记录迁移与备份`。
+3. 保持微信能够正常自动登录。
 
-> **不要**对微信二进制直接 `frida.spawn`：会绕过沙盒，常见现象是「全新微信 / 无原用户数据」。  
-> 程序默认已使用 `--mode open`；仅调试可设 `CHATLOG_FRIDA_MODE=spawn`（有丢数据环境风险）。
+### 2. 安装 Frida
 
-### 正确安装 Frida（必读）
-
-chatlog **不内置** Frida，依赖本机 Python 的 `frida` 包。请用**当前登录用户**安装（**不要** `sudo pip`，避免装到 root 环境而 chatlog 以普通用户跑找不到包）。
+macOS 数据库密钥仅通过 Frida 获取。请使用当前登录用户安装：
 
 ```bash
-# 1) 确认 Python 3（系统自带或 Homebrew 均可）
 python3 --version
-
-# 2) 安装到当前用户（推荐）
 python3 -m pip install --user -U frida-tools
-
-# 3) 验证：必须能 import，且版本建议 >= 17
-python3 -c "import frida; print('frida', frida.__version__)"
+python3 -c "import frida; print(frida.__version__)"
 ```
 
-若 `import frida` 失败，按下面排查：
+不要使用 `sudo pip`。Chatlog 和微信都应以当前桌面登录用户运行，否则微信可能进入错误的用户容器。
 
-| 现象 | 处理 |
-|------|------|
-| `ModuleNotFoundError: frida` | 确认 `python3 -m pip install --user frida-tools`；同一 `python3` 执行 `import frida` |
-| `pip` / `frida` 命令不在 PATH | 不影响：chatlog 用的是 `python3 -c "import frida"`，**不依赖** `frida` CLI 是否在 PATH |
-| 用了 `sudo pip install` | 卸载 root 包或改用 `--user`；用普通用户重新 `python3 -c "import frida"` |
-| 多个 Python（Homebrew / pyenv） | 保证 **chatlog 调用的 `python3`** 与安装 Frida 的是同一个：`which python3` |
-| 公司代理 / SSL | 配置 pip 镜像后再装，例如：`python3 -m pip install --user -U frida-tools -i https://pypi.org/simple` |
+### 3. 启动 Chatlog
 
-可选：若希望脚本路径固定，可设置：
+以 Apple Silicon 压缩包为例：
 
 ```bash
-export CHATLOG_FRIDA_SCRIPT=/path/to/chatlog_alpha/scripts/wechat_key_frida.py
+unzip chatlog_*_darwin_arm64.zip
+chmod +x chatlog-darwin-arm64
+./chatlog-darwin-arm64
 ```
 
-未设置时，会依次查找仓库 `scripts/wechat_key_frida.py`，否则使用二进制内嵌脚本。
+### 4. 按 TUI 步骤操作
 
-### 用法
+1. **切换账号**：确认选择了正确的微信账号。
+2. **重启并获取数据库密钥**：TUI 会显示明确的 6 步进度。
+3. 等待微信重新启动并完成登录。
+4. **获取图片密钥**：仅在需要查看部分加密媒体时执行。
+5. **解密数据**：建立本地工作目录。
+6. **启动 HTTP 服务**：浏览器访问 <http://127.0.0.1:5030/>。
+
+数据库密钥流程完成时应看到：
+
+```text
+✓ 1/6 检查 Frida 环境
+✓ 2/6 重启并启动微信
+✓ 3/6 挂载进程并安装 Hook
+✓ 4/6 短时收集各数据库候选密钥
+✓ 5/6 卸载 Hook 并断开会话
+✓ 6/6 逐库验证密钥并保存映射
+```
+
+### macOS 命令行提取密钥
 
 ```bash
-# 构建
-make build   # 或: go build -o bin/chatlog .
+# 自动探测账号目录
+./chatlog-darwin-arm64 key
 
-# 提取密钥（会结束当前微信，再 open -a 拉起原账号环境；请随后登录或等待自动登录）
-./bin/chatlog key
+# 指定账号目录
+./chatlog-darwin-arm64 key \
+  --data-dir "$HOME/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/<账号目录>"
 
-# 仅输出 64 位 hex，便于脚本
-./bin/chatlog key --json
-
-# 指定账号数据目录，捕获后写入 all_keys.json
-./bin/chatlog key --data-dir ~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/<账号目录>
-
-# 独立脚本（默认 --mode open，与 chatlog 一致）
-python3 scripts/wechat_key_frida.py --timeout 180
+# 只输出 data key
+./chatlog-darwin-arm64 key --json
 ```
 
-TUI：菜单 **「重启并获取密钥」** → 同一 Frida 路径。
-
-### 注意事项
-
-- 使用 **当前登录用户** 运行 chatlog / 脚本，**避免 `sudo ./bin/chatlog key`**（否则微信可能落到 `/var/root` 容器，表现为空账号）。
-- 抓 key 时请保证微信能完成登录；若超时无输出，登录后**打开任意聊天**再试，或加大超时：`./bin/chatlog key --timeout 300`。
-- 图片密钥仍可能走进程内存扫描（与 data key 无关）；仅获取图片 key 时若权限不足，再考虑管理员权限（见下文）。
-
-## GitHub 自动构建产物
-
-当前 `Release` 工作流会自动构建以下平台与架构：
-
-- `darwin/amd64`
-- `darwin/arm64`
-- `windows/amd64`
-- `windows/arm64`
-
-发布时会在 `dist/` 生成对应压缩包与二进制文件（Windows 为 `.exe`）。
-
-## 快速开始
-
-### 本地运行
+可选环境变量：
 
 ```bash
-go run .
+export CHATLOG_FRIDA_SCRIPT=/absolute/path/to/scripts/wechat_key_frida.py
+export WECHAT_EXE=/Applications/WeChat.app/Contents/MacOS/WeChat
 ```
 
-或：
+通常不需要设置；发布版已内嵌 Frida 脚本。
+
+## Windows 快速开始
+
+解压后运行对应程序：
+
+```powershell
+.\chatlog-windows-amd64.exe
+```
+
+Windows 当前通过读取微信进程内存提取数据库和图片密钥：
+
+- 建议以管理员身份启动 Chatlog。
+- 请先启动并登录微信。
+- 数据库提取仍处于实验阶段，微信更新后扫描模式可能发生变化。
+- `windows/arm64` 使用非 CGO 构建，语音转 MP3 等依赖 CGO 的能力会显示相应提示。
+
+遇到问题请在 [Issues](https://github.com/teest114514/chatlog_alpha/issues) 中附上 Windows 版本、微信版本、架构和脱敏后的错误信息。
+
+## 源码构建
+
+### 环境要求
+
+- Go `1.24` 或更高版本
+- Git
+- 支持 CGO 的 C 编译器
+- macOS 数据库提钥额外需要 Python 3 与 `frida-tools`
+
+### 构建当前平台
 
 ```bash
-go build -o chatlog ./cmd/chatlog
-./chatlog
+git clone https://github.com/teest114514/chatlog_alpha.git
+cd chatlog_alpha
+
+go test ./...
+mkdir -p bin
+CGO_ENABLED=1 go build -trimpath -o bin/chatlog .
+./bin/chatlog
 ```
 
-### 常用命令（CLI）
+也可以使用 Makefile：
 
 ```bash
-chatlog http list
+make clean
+make build
 ```
+
+跨平台发布建议直接使用仓库的 GitHub Actions；Windows `amd64` 构建需要 MinGW GCC。
+
+## 使用方式
+
+### TUI
+
+直接运行不带子命令的可执行文件即可进入 TUI：
 
 ```bash
-chatlog http call --endpoint history --query chat=<会话ID> --query limit=100 --query format=json
+./bin/chatlog
 ```
 
-### HTTP 接口命令行调用（全接口）
+基本按键：
+
+- `↑` / `↓`：移动
+- `Enter`：确认
+- `Esc`：返回
+- `Ctrl+C`：退出
+
+### CLI
 
 ```bash
-# 列出所有可调用 HTTP 接口别名
-chatlog http list
+# 查看可调用接口
+./bin/chatlog http list
 
-# 按别名调用（示例：聊天记录）
-chatlog http call --endpoint history --query chat=<会话ID> --query limit=100 --query format=json
+# 查询会话历史
+./bin/chatlog http call \
+  --endpoint history \
+  --query chat=<会话ID> \
+  --query limit=100 \
+  --query format=json
 
-# 按原始路径调用（示例：执行 SQL）
-chatlog http call --path /api/v1/db/query --query group=message --query file=message_0.db --query sql='select count(*) c from MSG'
+# 跨库搜索
+./bin/chatlog http call \
+  --path /api/v1/db/search \
+  --query keyword=项目 \
+  --query mode=deep \
+  --query limit=100
 
-# 全局搜索（quick / deep）
-chatlog http call --path /api/v1/db/search --query keyword=朋友圈 --query mode=deep --query limit=100
-
-# 媒体接口（模板路径参数）
-chatlog http call --endpoint image --path-param key=<image_key>
-
-# 朋友圈媒体代理解密
-chatlog http call --path /api/v1/sns/media/proxy --query key=<enc_key> --query url='<sns_media_url>'
+# 执行只读查询示例
+./bin/chatlog http call \
+  --path /api/v1/db/query \
+  --query group=message \
+  --query file=message_0.db \
+  --query 'sql=SELECT count(*) AS total FROM MSG'
 ```
 
-Skill 文档：`skills/chatlog-http-cli/SKILL.md`
+更多 CLI 接口说明见 [`skills/chatlog-http-cli/SKILL.md`](./skills/chatlog-http-cli/SKILL.md)。
 
-## macOS 权限说明（务必阅读）
+## HTTP API 与 MCP
 
-### data key（Frida）
+HTTP 服务默认监听 `0.0.0.0:5030`，本机访问地址为：
 
-- **不需要** `sudo` / 关闭 SIP / `task_for_pid` 提权。  
-- 需要：本机已正确安装 Frida（见上文「正确安装 Frida」）。  
-- 请用**登录用户**运行；`sudo` 反而容易导致微信用户数据目录错误。
-
-### 图片 key / 进程内存读取（可选能力）
-
-图片密钥若走内存扫描，仍依赖 `task_for_pid`。仅在「获取图片密钥」失败且提示权限不足时，再考虑：
-
-1. 以管理员权限启动（注意：与 data key 的 Frida 路径分开使用，避免长期 `sudo` 跑主程序）。  
-2. 或对可执行文件使用 setuid（每次重新编译后需重做）：
-
-```bash
-BIN_PATH="/你的实际路径/chatlog"
-sudo chown root:wheel "$BIN_PATH"
-sudo chmod 4755 "$BIN_PATH"
-ls -l "$BIN_PATH"   # 期望看到 -rwsr-xr-x
+```text
+http://127.0.0.1:5030/
 ```
 
-3. 部分系统上稳定读进程内存可能还受 SIP 限制；**仅 data key 时无需关闭 SIP**。
-
-## Windows 说明与反馈（重要）
-
-当前 Windows 与 macOS **提 key 路径不一致**：
-
-| 项 | 现状 |
-|----|------|
-| data key | **进程内存扫描**（非 Frida） |
-| 实机测试 | **未充分验证，不保证正常工作** |
-| 权限 | 建议**以管理员身份**运行，否则可能无法读微信进程内存 |
-
-**请 Windows 用户反馈：**
-
-1. 当前内存扫描方式在你的环境是否**工作正常**（提 key / 解密 / 查询）？  
-2. 是否希望 Windows 也改为与 macOS 相同的 **Frida Hook** 方案？  
-
-反馈请到仓库 Issues（附微信版本、系统版本、成功/失败与日志摘要）：
-
-→ [https://github.com/teest114514/chatlog_alpha/issues](https://github.com/teest114514/chatlog_alpha/issues)
-
-收到足够反馈后，会再决定是否把 Windows data key 更新为 Frida 方式。
-
-## HTTP 接口（摘要）
-
-基础：
-
-- `GET /health`
-- `GET /api/v1/ping`
-
-媒体：
-
-- `GET /image/*key`
-- `GET /video/*key`
-- `GET /file/*key`
-- `GET /voice/*key`
-- `GET /data/*path`
-- `GET /api/v1/sns/media/proxy`
-
-查询（wx-cli 风格）：
-
-- `GET /api/v1/sessions`
-- `GET /api/v1/history`
-- `GET /api/v1/search`
-- `GET /api/v1/unread`
-- `GET /api/v1/members`
-- `GET /api/v1/new_messages`
-- `GET /api/v1/stats`
-- `GET /api/v1/favorites`
-- `GET /api/v1/sns_notifications`
-- `GET /api/v1/sns_feed`
-- `GET /api/v1/sns_search`
-- `GET /api/v1/contacts`
-- `GET /api/v1/chatrooms`
-
-数据库调试：
-
-- `GET /api/v1/db`
-- `GET /api/v1/db/search`
-- `GET /api/v1/db/tables`
-- `GET /api/v1/db/data`
-- `GET /api/v1/db/query`
-- `POST /api/v1/cache/clear`
-
-语义检索（本地 Embedding：Ollama 或 llama.cpp；Rerank/Chat 可选）：
-
-- `GET /api/v1/semantic/config`
-- `POST /api/v1/semantic/config`
-- `POST /api/v1/semantic/test`
-- `GET /api/v1/semantic/index/status`
-- `POST /api/v1/semantic/index/rebuild`
-- `POST /api/v1/semantic/index/clear`
-- `GET /api/v1/semantic/search`
-- `POST /api/v1/semantic/qa`
-  - `POST /api/v1/semantic/qa/stream`（SSE 流式问答，前端默认使用）
-- `GET /api/v1/semantic/topics`
-- `GET /api/v1/semantic/profiles`
-
-时间知识图谱：
-
-- `POST /api/v1/graph/ingest/message`
-- `POST /api/v1/graph/ingest/business`
-- `POST /api/v1/graph/ingest/event`
-- `GET /api/v1/graph/status`
-- `POST /api/v1/graph/rebuild`
-- `POST /api/v1/graph/pause`
-- `POST /api/v1/graph/resume`
-- `GET /api/v1/graph/query`
-- `GET /api/v1/graph/timeline`
-- `GET /api/v1/graph/visualize`
-- `POST /api/v1/graph/qa`
-
-关键词推送（前端“关键词推送”页面与 TUI 同步）：
-
-- `GET /api/v1/hook/config`
-- `POST /api/v1/hook/config`
-- `GET /api/v1/hook/status`
-- `GET /api/v1/hook/events`
-- `POST /api/v1/hook/events/clear`
-- `GET /api/v1/hook/stream`（SSE 实时事件）
-- `GET /api/v1/hook/hermes/weixin`
-- `POST /api/v1/hook/hermes/weixin`
-- `GET /api/v1/hook/hermes/qq`
-- `POST /api/v1/hook/hermes/qq`
-
-输出格式：
-
-- 默认 `YAML`
-- 可选 `JSON`（`format=json`）
-
-查询接口口径（最新）：
-
-- `GET /api/v1/history`
-  - 新增可选过滤参数：`hour`（0-23）、`is_self`（`1/0`）、`sub_type`、`has_media`（`1/0`）
-  - `hour` 不传或留空表示“全部小时”
-  - 过滤顺序为“先过滤，再分页”，避免先 `limit` 截断导致统计错位
-  - 返回字段包含：
-    - `total_count`：过滤后的总条数
-    - `count`：当前页条数
-    - `limit` / `offset`
-- `GET /api/v1/search`
-  - 支持 `offset`
-  - 结果流程为“先聚合排序，再分页”
-  - 返回字段包含 `total_count` / `count` / `limit` / `offset`
-- `GET /api/v1/stats`
-  - 现在为实时计算（已移除服务端缓存）
-  - 返回口径字段：`query_since` / `query_until` / `query_range_label`
-  - 群聊 `active_senders` 为真实去重发言人数（非 TopN 长度）
-- `GET /api/v1/contacts`
-  - 默认 `limit=500`
-  - 支持 `is_friend` 筛选（`1/0/true/false`）
-- `GET /api/v1/chatrooms`
-  - 默认 `limit=500`
-
-YAML 可读性优化：
-
-- `history/search/stats` 已改为结构化输出（固定字段顺序，避免 map 随机顺序）
-- 合并转发/笔记中的媒体内容，当 host 缺失时不再生成 `http:///...` 空链接，而是回退为文本占位
-
-## 全局搜索
-
-- 前端页面：访问根页面 `http://127.0.0.1:5030/`，切换到“全局搜索”标签页。
-- 接口：`GET /api/v1/db/search`
-- 参数：
-  - `keyword`：搜索关键词
-  - `mode`：`quick` 或 `deep`
-  - `limit`：结果总数上限，默认 `100`，最大 `500`
-- 返回内容包含命中的：
-  - 数据库组
-  - 数据库文件
-  - 表名
-  - 列名
-  - 行标识
-  - 命中内容预览
-
-说明：
-
-- `quick`：优先性能，适合前端实时搜索。
-- `deep`：覆盖更全，会额外尝试解析压缩消息体和部分二进制字段，速度更慢。
-
-## 仪表盘
-
-前端入口：根页面 `http://127.0.0.1:5030/` 的"仪表盘"标签页，集成群聊数据可视化。
-
-分组统计：顶部下拉框选择私聊/群聊会话，展示消息类型饼图、活跃时段柱状图和收发比例。
-
-群聊数据概览（6 项）：
-
-1. **概览卡片** — 群聊消息总量、活跃群数、活跃成员（按群累加）、语义索引覆盖条数
-2. **群聊对比卡片** — 各群消息类型占比、活跃发言人、高峰时段，点击卡片可跳转对应群聊消息检索
-3. **发言人排行榜** — 跨群汇总 Top 15 发言人及消息数
-4. **群聊对比图表** — 合并展示各群消息类型结构和 24 小时活跃度，避免重复模块分散展示
-5. **消息趋势** — 基于原始消息统计的每日消息量柱状图，不依赖语义索引
-6. **热点摘要** — 基于原始消息抽取热点主题；GLM 可用时由 LLM 完成中文分词、同义归并和噪声过滤，后端再按主题短语回扫全量消息统计支撑数；GLM 不可用时自动回落到本地分词兜底。同时统计“被 @ 最多”排行，并支持 Markdown 摘要展示。
-
-时间范围筛选：
-
-- 概览/群聊对比/排行榜/类型对比/24h 活跃度共用一组时间选择器，默认"今天"，支持近 7 天、近 1 月、近季度、近 1 年、全部。
-- 消息趋势/热点摘要共用独立时间选择器，默认"近 1 月"，支持今天、近 7 天、近季度、近 1 年；热点摘要需要点击“生成摘要”手动触发，避免进入仪表盘自动消耗 LLM 请求。
-
-说明：
-
-- 概览卡片、群聊对比和排行榜按 `/api/v1/stats` 的 `time` 参数过滤（`last-1d` / `last-7d` / `last-30d` / `last-3m` / `last-1y` / `all`）。
-- 消息趋势和热点摘要按 `/api/v1/dashboard/trend` 的 `window` 参数过滤（`today` / `7d` / `30d` / `90d` / `1y`），该接口直接读取原始消息；趋势图使用 `summary=0` 快速返回，热点摘要点击“生成摘要”后才使用 `summary=1`。GLM 输入包含按日期和会话分层抽样并去重后的原始消息、日趋势、LLM 归并主题和被 @ 排行；响应会返回 `topics_source` / `topics_error`，前端会标明主题来自“LLM 主题归并”还是“本地分词兜底”。
-- 语义索引覆盖卡片会显示 `检测中 / 未启用 / 构建中 / 未建立 / 已索引条数 / 不可用`，避免接口异常或索引为空时表现为空白。
-- 分组统计（私聊/群聊独立分析）使用各面板的 `since` 参数过滤，默认"近 7 天"。
-
-## 实验性语义能力（本地 Embedding + 可选 Rerank/Chat）
-
-前端入口：
-
-- 根页面 `http://127.0.0.1:5030/` 的“实验性功能”标签页是 GPT 网页端式聊天入口。
-- 右侧可设置时间窗、最近会话数量、指定单个 chat、勾选多个最近会话和检索深度。
-- 时间窗是默认范围；问题中含“今天/昨天/4月23日/2026-04-23/近一月/历史”等表达时，后端会自动覆盖默认时间窗。
-- 对话框下方的“配置与索引管理”提供模型参数、连通性测试、索引状态、删除/重建索引和主题/画像工具。
-
-### 默认配置
-
-| 项 | 默认值 |
-|----|--------|
-| Embedding provider | `ollama`（本地槽位：Ollama **或** llama.cpp 等兼容服务） |
-| Embedding model | `qwen3-embedding:8b`（Ollama 场景） |
-| Embedding 维度 | `4096`（`qwen3-embedding:4b` 自动 `2560`） |
-| 本地 Base URL（`ollama_base_url`） | `http://127.0.0.1:11434` |
-| Rerank provider | `ollama`（默认模型 `dengcao/Qwen3-Reranker-8B:Q5_K_M`） |
-| Chat provider | `glm`（默认 `glm-5.1`，需 API Key；可选 DeepSeek / Ollama Chat） |
-
-可配置字段：`ollama_base_url`、`embedding_provider`、`rerank_provider`、`chat_provider`、`api_key`、`base_url`、`deepseek_api_key`、`deepseek_base_url`、`embedding_model`、`rerank_model`、`chat_model`、`chat_max_tokens`、`chat_temperature`、`embedding_dimension`、`recall_k`、`top_n`、`similarity_threshold`、`index_workers`（默认 1，最大 32）。
-
-语义能力为实验性固定能力（前端不可关）。`POST /api/v1/semantic/test` 仅做当前表单的临时连通性测试，不保存配置、不启动索引。Embedding 未配置或不可连接时，禁止索引/检索/问答。
-
-### 本地 Embedding：Ollama 与 llama.cpp
-
-`embedding_provider=ollama` 表示「本地 embedding 槽位」，**不强制必须是 Ollama 进程**。请求会按顺序探测：
-
-| 顺序 | 路径 | 说明 |
-|------|------|------|
-| 1 | `POST {base}/api/embed` | Ollama 私有接口 |
-| 2 | `POST {base}/v1/embeddings` | OpenAI 兼容（**llama-server** 推荐） |
-| 3 | `POST {base}/embeddings` | 部分兼容服务 |
-| 4 | `POST {base}/embedding` | llama.cpp 原生（`content` 字段，单条） |
-
-首次成功的协议会按 Base URL 缓存，避免每批重复探测。
-
-**Ollama（默认）**
-
-```bash
-# 安装并拉取 embedding 模型后保持默认 ollama_base_url=http://127.0.0.1:11434 即可
-ollama pull qwen3-embedding:8b
-```
-
-**llama.cpp server（无需 Ollama）**
-
-```bash
-# 启动时必须打开 embeddings
-llama-server -m /path/to/your-embed.gguf --embeddings -c 512 --port 8080
-```
-
-在「配置与索引管理」中：
-
-1. Embedding Provider 保持 `ollama`（本地槽位）  
-2. **Ollama Base URL** 改为 `http://127.0.0.1:8080`（你的 llama-server 地址）  
-3. Embedding Model 填任意非空名（部分服务会忽略 model 字段）  
-4. **Embedding Dimension** 改成与 GGUF 模型一致的维度  
-5. 点「连通性测试」确认  
-
-> Rerank / Chat 若仍选 `ollama`，会走 Ollama 的 `/api/generate`、`/api/chat`，**llama.cpp 默认不兼容**。  
-> 纯 llama.cpp 时建议：关闭 Rerank，或 Rerank/Chat 改用 GLM/DeepSeek；Chat 也可继续用远程 API。
-
-本地多模型串行调度（主要为 Ollama 换模）：同一时间只跑一个本地模型阶段（embedding / rerank / chat），阶段切换会卸载模型。对 llama.cpp 不会发 Ollama 的 `keep_alive` 卸载请求。
-
-### 其他说明
-
-- Embedding 限制：单次最多 64 条；单条约 3072 tokens 上限，服务端自动截断拆批。
-- 维度或 embedding 模型变更后需**重建向量索引**。
-- 性能：8B 级本地模型对内存/CPU/GPU 压力大，16GB 机器建议 `index_workers=1`；可改用更小 embedding 模型。
-- 费用：GLM/DeepSeek 按 token 计费；全量重建、LLM Chunk、图谱抽取、热点摘要等可能产生大量请求，建议先小范围试跑。
-- `api_key` / `deepseek_api_key` 无默认值，接口不回显真实 key，仅 `has_api_key` / `has_deepseek_api_key`；保存时留空表示保留已存 key。
-- Chat 路径：GLM → `<base_url>/chat/completions`；DeepSeek → `<deepseek_base_url>/chat/completions`；Ollama Chat → `<ollama_base_url>/api/chat`。
-
-## 时间知识图谱
-
-- 前端入口：“时间知识图谱”标签页。
-- 本地图谱库路径：`<WorkDir>/.chatlog_graph/temporal_graph.db`。
-- 图谱 schema 包含 `graph_entities`、`graph_relations`、`graph_events`、`graph_facts`、`graph_evidence`、`graph_jobs`、`graph_meta` 和 `graph_source_records`。
-- 抽取模型复用“实验性功能”里的 Chat 配置；默认需要配置 GLM API Key。不做本地规则兜底；未配置 Chat、模型请求失败、JSON 解析失败或模型返回空抽取结果时不会产出图谱结果，并会在图谱状态中展示错误。
-- 聊天消息接入：图谱模块会在启动后先全量扫描最近会话并建立来源队列，之后独立轮询最近会话并按每个会话的消息 `seq` 增量入队；不依赖关键词/转发 hook。消息来源会携带前 5 条、后 2 条上下文和会话参与者；历史入队还会额外生成会话 chunk 来源，用于抽取跨多条消息形成的事实和关系变化。点击前端“增量重建”或调用 `POST /api/v1/graph/rebuild` 可手动补齐。
-- 图谱聊天数据源会过滤纯媒体占位、撤回通知、语音/通话占位、附件占位、极短确认语和纯 @ 召集内容；已有队列中的同类低信息来源会直接标记为已处理，不再调用 GLM。
-- 图谱入库前会做确定性质量增强：基于会话参与者、联系人显示名、wxid 和业务实体提示做别名归一；关系谓词会映射为稳定的规范谓词；“今天/明天/下周/月底/4月25日”等时间表达会结合消息时间解析为绝对时间。
-- 抽取队列支持并发 worker：默认 1 个 Chat 抽取 worker、1 个历史入队 worker，可在前端调整；来源会先原子领取为 `processing`，中断重启后自动恢复为 `pending`，避免重复抽取或卡住。
-- 性能与费用提示：图谱抽取每条来源通常会调用 Chat 模型做抽取，部分流程还会做证据校验/归一化，远程 GLM/DeepSeek 会产生 token 费用；Ollama 本地 Chat 虽不产生 API 费用，但 8B 级模型抽取速度较慢且占用内存，建议默认并发 1，确认机器资源和模型稳定后再调高。
-- 业务数据和外部事件可通过 ingest API 或前端表单推送；接口支持单对象或数组批量提交。
-- 业务数据的 `entities`、外部事件的 `actors/targets` 会作为强实体提示入库，并同步传给 Chat 模型作为抽取约束。
-- 当 Chat 抽取结果包含 `ended/updated/conflict` 等变更时，后端会关闭同一关系/事实的旧 `active` 版本并写入 `valid_to`，用于展示关系和事实的时间演变。
-- 图谱抽取后会再调用 Chat 模型做一次证据校验和归一化：不被证据支持的事实/关系不会入库；保留项会写入 `verified`、`support_score`、`canonical_statement/canonical_predicate` 和可选 `conflict_group`。
-- 实体入库会维护 `canonical_key/canonical_name/canonical_id`，用于合并昵称、备注、群昵称和同一实体的不同称呼；前端事实/关系列表会展示验证状态、支持度、归一表述和冲突组。
-- 图谱问答优先检索时间图谱中的实体、关系、事实和事件，再调用 Chat 模型生成关于事实、关系变化和证据来源的回答；Chat 未配置时返回本地证据摘要。
-- `POST /api/v1/graph/rebuild` 默认只补齐/重跑未完成内容；传 `{"reset":true}` 会清空实体/关系/事件/事实/证据并把原始来源重新置为待抽取。
-- `pause/resume` 只控制图谱抽取队列，不影响语义向量索引。
-- 图谱状态：`GET /api/v1/graph/status` 会返回 `source_count` / `pending` / `processing` / `processed` / `failed` / `progress_pct`，并展示 `started_at` / `processing_rate_per_minute` / `estimated_seconds_left` 用于估算当前抽取任务剩余时长。刚启动或尚未完成任何来源时预计时长会显示为空。
-
-向量索引：
-
-- 实时状态：`GET /api/v1/semantic/index/status`
-  - 状态字段包含：
-    - 基础构建状态：`indexed_count` / `processed` / `failed` / `pending` / `total` / `progress_pct`
-    - 预计完成状态：`started_at` / `processing_rate_per_minute` / `estimated_seconds_left`
-    - 增量状态：`last_incremental_at` / `last_incremental_added` / `last_incremental_error`
-    - 重排序状态：`last_rerank_at` / `last_rerank_applied` / `last_rerank_error`
-  - `pending` 仅表示未处理会话数；构建进度按 `processed + failed` 计算，失败项会单独展示。
-- 索引内容预览：`GET /api/v1/semantic/index/preview?kind=message|entity|chunk|all&limit=20&talker=...`
-  - 返回入库文本、类型分布、向量维度、向量范数、前若干维样本、3D 投影坐标和离群点评分，不返回完整高维向量。
-  - `talker` 可选；传入 session username 后，message/chunk 按会话过滤，entity 返回该会话相关实体。
-- 重建索引：`POST /api/v1/semantic/index/rebuild`
-  - `reset=0`（默认）：断点续传，继续上次中断进度
-  - `reset=1`：从头重建（先清空索引）
-  - 当前为后台任务：接口返回 `accepted=true` 后，通过 `GET /api/v1/semantic/index/status` 查看进度。
-- 暂停索引：`POST /api/v1/semantic/index/pause`
-  - 会取消当前运行中的索引任务，保留已写入索引和重建断点。
-  - 暂停状态会写入索引库元信息，服务重启后仍会保持暂停。
-- 恢复索引：`POST /api/v1/semantic/index/resume`
-  - 如果暂停前是重建任务，会按 `reset=0` 的断点续传方式继续。
-  - 如果暂停前是增量任务，恢复后由实时增量 watcher 或下一次检索前兜底增量补齐。
-- 删除索引：`POST /api/v1/semantic/index/clear`
-- 本地索引库路径：`<WorkDir>/.chatlog_semantic/vector_index.db`
-- 同一索引库内还维护实体索引表，用于联系人、群名、群成员别名召回；索引状态中的 `entity_count` 表示当前实体索引数量。
-- 同一索引库内还维护 Chunk 索引表，用于会话片段、时间段摘要和主题词片段召回；索引状态中的 `chunk_count` 表示当前 Chunk 索引数量。
-
-已接入能力（6项）：
-
-1. 语义全局检索：`GET /api/v1/semantic/search?query=...&chat=...&window=7d&source_limit=50`
-2. 检索精排：`semantic/search` 默认开启 Ollama rerank
-3. 会话级问答（RAG 检索证据 + 前后文扩展 + Chat 流式生成）：`POST /api/v1/semantic/qa/stream`
-5. 主题聚类/趋势（统计图表 + LLM 摘要）：`GET /api/v1/semantic/topics`
-6. 联系人/发送者语义画像（关键词聚合 + LLM 摘要）：`GET /api/v1/semantic/profiles`
-
-说明：
-
-- 语义问答和搜索在未指定 `chat/chats` 时，会先读取最近会话列表，再按每个会话的 `username` 到向量库中检索指定时间窗内的聊天记录。
-- 问答实体解析会优先使用联系人/群聊精确匹配，再融合实体向量索引中的联系人昵称、备注、微信号、群名和群成员群昵称；命中的候选会在前端调试信息里展示来源（如 `entity_exact` / `entity_fuzzy` / `entity_vector`）。
-- `chat` 表示单会话强制过滤；`chats` 支持逗号分隔多个 `username`；`window` 支持 `today`、`yesterday`、`7d`、`30d`、`90d`、`1y`、`all` 和 `YYYY-MM-DD`。
-- 问题内时间优先级高于前端时间窗，也会同步用于向量 RAG 分支，避免“问题问今天但前端仍按近七天检索”的偏差。
-- 前端聊天主入口不再暴露手写 TopN，也不再提供“只检索证据”模式；检索深度用于控制问答证据量：`standard`（8 条）、`deep`（16 条）、`wide`（30 条）。专业参数里的 `recall_k/top_n` 仍用于默认配置和 API 调参。
-- 对“某人今天发的消息 / 某人昨天说了什么 / 某人近7天发的消息”这类精确条件问题，问答接口会优先走联系人/群成员实体解析 + 原始消息 sender 过滤，不依赖向量相似度碰运气；其他开放问题仍走向量 RAG。
-- 对“某人有没有提到某事”这类混合问题，问答接口会先解析发言人，再拉取该发言人的时间窗消息，并使用 GLM 基于证据判断和总结；避免仅靠消息正文向量匹配昵称。
-- 对“今天有哪些图片/文件/语音/视频/表情”这类媒体过滤问题，问答接口会直接按消息类型过滤原始消息，不走向量召回。
-- 索引状态新增覆盖度：展示已索引会话数、已知会话数、未覆盖会话数和最近索引消息时间，便于判断为什么某个会话可能问不到。
-- 实体解析会在调试信息中返回候选数量和是否歧义；多个联系人或群成员同名时，前端会标出 `candidates=N(歧义)`，并可点击候选“使用”来确认精确 `username`。
-- LLM 路由现在会做 schema 校验和一次重试；返回会包含 `answer_mode`（list/summary/stats），空结果会展示明确原因。
-- 存在实体歧义时，前端会在证据区域列出候选实体（显示名、类型、来源、username）；确认候选后，下一次问答会通过 `entity_override` 精确过滤发送者。
-- 前端问答结果顶部会展示调试信息，例如 `intent=sender_semantic_search | route=llm/direct/sender+llm | entity=张三 | topic=合同延期`，用于排查实体解析、时间窗和检索路径。
-- 当前 5/6 项仍以轻量统计为基础，LLM 摘要用于解释结果；后续可替换为更强中文分词、聚类算法或长期画像模型。
-- 向量召回不是直接全表暴力比对。系统会按会话范围和时间窗自适应扩大候选池，并使用“近期记录 + 时间分层抽样”混合候选，避免 `all` 或长时间窗只召回最近聊天。
-- RAG 召回会融合三类向量证据：单条消息、实体索引、Chunk 索引。Chunk 命中后会回查对应时间段内的原始消息作为证据上下文，摘要/主题 chunk 只负责召回，不直接替代原始聊天证据。
-- 可选开启 `enable_llm_chunk` 后，重建索引时会调用 Chat Model 为 chunk 生成更高质量摘要和主题；该能力会增加索引耗时和 API 成本，默认关闭。
-- 问答生成前会压缩重复证据，并对弱召回执行低置信度拒答；模型回答要求关键事实使用 `[1]`、`[2]` 等证据编号，不允许引用不存在的编号。
-- `realtime_index` 开启时，服务运行期间会根据会话 `NOrder` 变化自动触发增量建索引；语义检索前也会做 30 秒节流的兜底增量，兼顾实时性和连续问答性能。
-- HTTP 服务启动后会额外执行一次增量索引，用于补齐程序或微信客户端关闭期间产生、但尚未写入索引库的消息。
-- 增量索引会扫描会话内消息并按 `content_hash` 跳过未变化内容；新增消息和内容变更消息会重新向量化。
-- 语义索引会跳过低信息内容：纯媒体占位（如 `[图片]`、`[视频]`、`[语音]`）、语音通话、撤回消息和常见短确认。历史接口仍完整返回这些消息。
-- 索引存在失败会话时，已完成部分仍可用于搜索/问答；失败会话会在状态字段 `failed_talkers` 中展示。
-
-## 朋友圈媒体代理解密
-
-- 接口：`GET /api/v1/sns/media/proxy`
-- 典型参数：
-  - `url`：朋友圈图片 / 视频 / 实况图资源地址
-  - `key`：对应消息 XML 中的 `<enc key="...">`
-- 行为：
-  - 图片：优先按 `reversed` keystream 解密，失败再尝试 `raw`
-  - 视频：按前 `128 KB` 做 XOR 解密，并使用 `reversed` keystream
-  - 文件头校验优先，不会只因为响应头里的 `Content-Type` 看起来像图片/视频就跳过解密
-  - 优先使用微信官方 `wasm_video_decode.wasm/js` 生成 keystream，失败时回退到本地 Go 实现
-- `sns_feed` / `sns_search` 返回的 `media_list` 已带代理地址，可直接访问。
-
-示例：
-
-```bash
-curl "http://127.0.0.1:5030/api/v1/sns_feed?limit=5"
-curl "http://127.0.0.1:5030/api/v1/sns/media/proxy?key=2503144471&url=https%3A%2F%2F..."
-```
-
-自动补 key：
-
-- 如果 `sns_feed` / `sns_search` 已经解析过对应朋友圈消息，服务端会缓存媒体 `url -> key` 映射。
-- 之后请求 `/api/v1/sns/media/proxy?key=0&url=...` 时，会优先尝试从缓存里自动补上真实 key。
-- 如果该消息从未被解析过，且请求里又没有提供正确 `key`，则无法解密。
-
-运行前提：
-
-- 若要使用官方 WASM 解密路径，运行环境需要安装 `node`。
-- 没有 `node` 时，程序会自动回退到内置 Go 实现，但兼容性可能略差。
-
-## 关键词推送与持久化
-
-- 前端页面：访问根页面 `http://127.0.0.1:5030/`，切换到“关键词推送”标签页。
-- 配置项与 TUI 一致：
-  - `keywords`（多个用 `｜` 分隔）
-  - `notify_mode`（`mcp` / `post` / `both` / `weixin` / `qq` / `all`，也支持 `mcp,weixin`、`mcp,qq` 这类组合值）
-  - `post_url`
-  - `before_count` / `after_count`
-- MCP 主动推送方法名：`notifications/chatlog/keyword_hit`
-- 前端“关键词推送”页面会展示所有触发事件，不受 `notify_mode` 影响。
-- Weixin Channel 推送：
-  - 自动读取 Hermes Agent 的 `HERMES_HOME` 或默认 `~/.hermes`
-  - 优先从 `.env` 读取 `WEIXIN_HOME_CHANNEL`、`WEIXIN_ACCOUNT_ID`、`WEIXIN_TOKEN`、`WEIXIN_BASE_URL`
-  - 同时支持读取 `config.yaml` 的 `platforms.weixin.token`
-  - 若 `.env` 未提供 token / base_url，会继续读取 `weixin/accounts/<account_id>.json`
-  - 也会尝试读取 `config.yaml` 的 `platforms.weixin.extra`（如 `account_id/token/base_url/cdn_base_url`）
-  - 前端可直接读取并修改上述微信配置，保存时会写回 Hermes Home 下的 `.env`
-  - 启用 `weixin` 模式时，会校验 Hermes Agent 已安装，且微信渠道已配置完成
-  - iLink 接口限制提醒：
-    - 该接口存在会话态限制，长时间未交互后，主动推送可能被拒绝或无效。
-    - 经验值：先主动给 `clawbot` 发送一条消息后，通常可连续主动推送约 `10` 次（实际次数会随账号状态与接口策略波动）。
-- QQ Channel 推送：
-  - 自动读取 Hermes Agent 的 `HERMES_HOME` 或默认 `~/.hermes`
-  - 优先从 `.env` 读取 `QQ_APP_ID`、`QQ_CLIENT_SECRET`、`QQBOT_HOME_CHANNEL`、`QQBOT_HOME_CHANNEL_NAME`
-  - 也支持读取 `config.yaml` 的 `platforms.qqbot.extra.app_id/client_secret` 与 `platforms.qqbot.home_channel`
-  - 兼容读取 `config.yaml` 的 `platforms.qq` 段
-  - 前端可直接读取并修改上述 QQ 配置，保存时会写回 Hermes Home 下的 `.env`
-  - 启用 `qq` 模式时，会校验 Hermes Agent 已安装，且 QQ 渠道已配置完成
-  - home channel 默认按私聊处理；若要主动推送到群聊或频道，请使用 `group:group_openid` 或 `channel:channel_id` 前缀
-- 事件持久化文件：
-  - 优先：`<DataDir>/chatlog_hook_events.json`
-  - 回退：`<WorkDir>/chatlog_hook_events.json`
-- 清理方式：
-  - 前端“清空事件”按钮
-  - 或调用 `POST /api/v1/hook/events/clear`
-
-## MCP
-
-端点：
+如果不需要局域网访问，建议在配置中将监听地址限制为 `127.0.0.1:5030`。
+
+常用接口：
+
+| 类别 | 接口 |
+|---|---|
+| 健康检查 | `GET /health`、`GET /api/v1/ping` |
+| 会话与消息 | `GET /api/v1/sessions`、`GET /api/v1/history`、`GET /api/v1/search` |
+| 联系人与群聊 | `GET /api/v1/contacts`、`GET /api/v1/chatrooms`、`GET /api/v1/members` |
+| 朋友圈 | `GET /api/v1/sns_feed`、`GET /api/v1/sns_search` |
+| 数据库 | `GET /api/v1/db`、`GET /api/v1/db/tables`、`GET /api/v1/db/query` |
+| 全局搜索 | `GET /api/v1/db/search` |
+| 媒体 | `/image/*key`、`/video/*key`、`/voice/*key`、`/file/*key` |
+| 语义能力 | `/api/v1/semantic/*` |
+| 时间图谱 | `/api/v1/graph/*` |
+| 关键词推送 | `/api/v1/hook/*` |
+
+### MCP
+
+支持以下入口：
 
 - `ANY /mcp`
 - `ANY /mcp/`
 - `ANY /sse`
 - `ANY /message`
 
-### Hermes Agent 接入
-
-本项目可作为 Hermes 的 HTTP MCP Server 使用。
-
-1. 先确保 chatlog HTTP 服务已启动（默认 `127.0.0.1:5030`）。
-
-2. 在 `~/.hermes/config.yaml` 增加 MCP 配置：
+Hermes Agent 示例：
 
 ```yaml
 mcp_servers:
@@ -714,31 +301,140 @@ mcp_servers:
     enabled: true
     connect_timeout: 60
     timeout: 120
-    tools:
-      resources: false
-      prompts: false
 ```
 
-3. 或使用 Hermes CLI 直接添加：
+也可以执行：
 
 ```bash
 hermes mcp add chatlog --url http://127.0.0.1:5030/mcp
 hermes mcp test chatlog
 ```
 
-4. 在 Hermes 会话中执行：
+## 语义检索与时间知识图谱
 
-```text
-/reload-mcp
+这些能力为可选的增强模块，入口位于 Web 页面的“实验性功能”和“时间知识图谱”。
+
+默认本地检索配置：
+
+| 项 | 默认值 |
+|---|---|
+| Embedding Provider | `ollama` |
+| Embedding Model | `qwen3-embedding:8b` |
+| Embedding Base URL | `http://127.0.0.1:11434` |
+| Rerank Model | `dengcao/Qwen3-Reranker-8B:Q5_K_M` |
+| Chat Provider | `glm`，需要自行配置 API Key |
+
+`embedding_provider=ollama` 同时兼容 Ollama 和提供 OpenAI Embeddings 接口的本地服务。使用 llama.cpp 时示例：
+
+```bash
+llama-server -m /path/to/embedding.gguf --embeddings -c 512 --port 8080
 ```
 
-加载后，工具名称会以 `mcp_chatlog_` 前缀出现。
+然后在 Web 配置中把 `ollama_base_url` 设置为 `http://127.0.0.1:8080`，并填写与模型一致的向量维度。
 
-## 安全与隐私
+索引文件：
 
-- 所有处理在本地完成
-- 请妥善保管解密数据与密钥文件
+- 语义索引：`<WorkDir>/.chatlog_semantic/vector_index.db`
+- 时间图谱：`<WorkDir>/.chatlog_graph/temporal_graph.db`
 
-## 免责声明
+更换 Embedding 模型或维度后，需要重新构建向量索引。
 
-详见 [DISCLAIMER.md](./DISCLAIMER.md)
+## 权限与数据目录
+
+### macOS
+
+- **数据库 data key 不需要 root 权限。**
+- 数据库密钥流程使用当前用户的 Frida，并在完成后释放 Hook、会话和运行时。
+- “获取图片密钥”会先尝试本地推导；只有进程内存读取明确缺少权限时，才弹出系统管理员授权窗口。
+- 临时提权只用于短生命周期的图片密钥扫描子进程，TUI 本身仍以普通用户运行。
+- 历史 `all_keys.json` 若属于 root，TUI 会提示并请求一次授权修复文件所有权与权限。
+
+### Windows
+
+- 进程内存扫描通常需要管理员权限。
+- Chatlog 与微信架构应匹配，优先使用 `windows_amd64` 构建。
+
+### 主要文件位置
+
+| 文件 | 位置 |
+|---|---|
+| 数据库密钥映射 | 微信账号目录下的 `all_keys.json` |
+| 账号运行配置 | 数据目录下的 `chatlog.json` |
+| macOS 默认工作目录 | `~/Documents/chatlog/<账号>/` |
+| Windows 默认工作目录 | `~/chatlog/<账号>/` |
+| 查询缓存 | `~/.chatlog/wcdb_cache/` |
+
+`all_keys.json` 包含敏感密钥，默认以 `0600` 权限写入。不要把密钥、解密数据库、聊天内容或模型 API Key 提交到 Git 仓库。
+
+## GitHub 自动构建
+
+工作流文件：[`release.yml`](./.github/workflows/release.yml)
+
+每次 `push` 的发布顺序：
+
+1. 取消同组仍在运行的旧发布任务。
+2. 删除旧的 `latest` Release 及其 Git 标签。
+3. 删除旧的 `release-macos`、`release-windows` Actions Artifacts。
+4. macOS 和 Windows 构建机分别删除本次工作区中的 `dist/`、`release/`。
+5. 重新构建四个平台产物。
+6. 上传新的 Artifacts，并创建新的 `Latest Build` 预发布版本。
+
+构建矩阵：
+
+- `darwin/amd64`
+- `darwin/arm64`
+- `windows/amd64`（CGO + MinGW GCC）
+- `windows/arm64`（非 CGO）
+
+由于旧 Release 会在编译前删除，如果新构建失败，`latest` 页面会暂时不存在；修复构建后重新推送即可生成新的发布。
+
+## 常见问题
+
+### Frida 未捕获到密钥
+
+1. 确认 `python3 -c "import frida"` 成功。
+2. 确认微信能够自动登录。
+3. 登录后打开任意聊天窗口再重试。
+4. 增加等待时间：`chatlog key --timeout 300`。
+5. 确认没有使用 `sudo` 启动 Chatlog 或微信。
+
+### 卡在“Frida script unloaded”附近
+
+当前版本在结构化清理完成后会主动关闭 Frida 运行时，并由 Go 宿主提供有限时间的退出兜底。重新运行后，TUI 应继续进入第 6 步，而不是停在卸载提示。
+
+### `weclaw.db` 或 `solitaire.db` 没有表
+
+这两个文件可能是微信预先创建的一页空数据库。只要查询不再报告密钥错误且 SQLite 完整性检查通过，表数量为 `0` 属于正常状态。
+
+### HTTP 页面打不开
+
+- 确认 TUI 已显示“已启动 HTTP 服务”。
+- 检查 `5030` 端口是否被其他程序占用。
+- 本机使用 <http://127.0.0.1:5030/>，不要使用数据库文件路径作为网址。
+
+### Windows 提取失败
+
+以管理员身份重新运行，并确认微信已经登录。提交 Issue 时请附上系统版本、微信版本、CPU 架构和脱敏日志。
+
+## 开发与验证
+
+提交前建议运行：
+
+```bash
+gofmt -w <修改的 Go 文件>
+go test ./...
+git diff --check
+```
+
+Windows 非 CGO 交叉编译检查：
+
+```bash
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
+```
+
+## 反馈与许可
+
+- 问题反馈：[GitHub Issues](https://github.com/teest114514/chatlog_alpha/issues)
+- 许可协议：[MIT License](./LICENSE)
+
+请仅处理你有权访问的本地数据，并妥善保管生成的密钥、缓存与解密结果。

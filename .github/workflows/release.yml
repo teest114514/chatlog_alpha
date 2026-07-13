@@ -2,16 +2,77 @@ name: Release
 
 on: [push]
 
+concurrency:
+  group: release-latest
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  cleanup-old-builds:
+    name: Delete Previous Build Outputs
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Delete Previous Latest Release And Tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view latest --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release delete latest \
+              --repo "${GITHUB_REPOSITORY}" \
+              --cleanup-tag \
+              --yes
+          else
+            echo "No previous latest release found."
+          fi
+
+      - name: Delete Previous Workflow Artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for artifact_name in release-macos release-windows; do
+            artifact_ids="$(
+              gh api \
+                --paginate \
+                -H "Accept: application/vnd.github+json" \
+                "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100" \
+                --jq '.artifacts[].id'
+            )"
+
+            if [[ -z "${artifact_ids}" ]]; then
+              echo "No previous ${artifact_name} artifacts found."
+              continue
+            fi
+
+            while IFS= read -r artifact_id; do
+              [[ -n "${artifact_id}" ]] || continue
+              echo "Deleting ${artifact_name} artifact ${artifact_id}"
+              gh api \
+                --method DELETE \
+                -H "Accept: application/vnd.github+json" \
+                "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+            done <<< "${artifact_ids}"
+          done
+
   build-macos:
     name: Build macOS (amd64, arm64)
     runs-on: macos-latest
+    needs: cleanup-old-builds
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Clean Workspace Build Outputs
+        shell: bash
+        run: rm -rf dist release
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -51,9 +112,14 @@ jobs:
   build-windows:
     name: Build Windows (amd64, arm64)
     runs-on: windows-latest
+    needs: cleanup-old-builds
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Clean Workspace Build Outputs
+        shell: pwsh
+        run: Remove-Item -Recurse -Force dist, release -ErrorAction SilentlyContinue
 
       - name: Setup Go
         uses: actions/setup-go@v6

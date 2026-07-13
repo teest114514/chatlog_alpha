@@ -2,9 +2,11 @@ package chatlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -176,11 +178,29 @@ func (m *Manager) GetDataKey() error {
 	return nil
 }
 
-func (m *Manager) GetImageKey() error {
+func (m *Manager) GetImageKey(onStatus func(string)) error {
 	if m.ctx.Current == nil {
 		return fmt.Errorf("未选择任何账号")
 	}
-	imgKey, err := m.wechat.GetImageKey(m.ctx.Current)
+	if onStatus != nil {
+		onStatus("正在优先尝试本地推导图片密钥")
+	}
+	imgKey, err := m.wechat.GetImageKeyWithStatus(m.ctx.Current, onStatus)
+	if err != nil && runtime.GOOS == "darwin" && errors.Is(err, keydarwin.ErrImageKeyPermission) {
+		if onStatus != nil {
+			onStatus("普通用户无法读取微信内存，准备请求临时管理员授权")
+		}
+		dataDir := m.ctx.Current.DataDir
+		if dataDir == "" {
+			dataDir = m.ctx.DataDir
+		}
+		imgKey, err = keydarwin.ExtractImageKeyWithAuthorization(
+			context.Background(),
+			m.ctx.Current.PID,
+			dataDir,
+			onStatus,
+		)
+	}
 	if err != nil {
 		return err
 	}
@@ -197,6 +217,9 @@ func (m *Manager) GetImageKey() error {
 	}
 	m.ctx.Refresh()
 	m.ctx.UpdateConfig()
+	if onStatus != nil {
+		onStatus("图片密钥已保存；本次任务未保留管理员权限")
+	}
 	return nil
 }
 
@@ -219,38 +242,47 @@ func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 			return fmt.Errorf("提取数据库密钥需要 Frida：请先执行 pip3 install frida-tools")
 		}
 		if onStatus != nil {
-			onStatus("通过 Frida Hook CCKeyDerivationPBKDF 提取密钥（请在弹出的微信中登录）...")
+			onStatus("[1/6] 检查 Frida 环境")
 		}
 		log.Info().Msg("RestartAndGetDataKey: Frida-only data key path")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 		defer cancel()
 
-		key, err := keydarwin.ExtractKeyViaFrida(ctx, dataDir, onStatus)
+		key, candidates, err := keydarwin.ExtractKeysViaFrida(ctx, dataDir, onStatus)
 		if err != nil {
 			return fmt.Errorf("Frida 提取密钥失败: %w", err)
 		}
 
-		var newInstance *iwechat.Account
-		deadline := time.Now().Add(120 * time.Second)
-		for time.Now().Before(deadline) {
-			if best := pickBestWeChatInstance(m.wechat.GetWeChatInstances(), exePath, platform); best != nil {
-				newInstance = best
-				if best.DataDir != "" {
-					dataDir = best.DataDir
-					break
+		newInstance := pickBestWeChatInstance(m.wechat.GetWeChatInstances(), exePath, platform)
+		if newInstance != nil && newInstance.DataDir != "" {
+			dataDir = newInstance.DataDir
+		}
+		// The account data directory is normally known before Frida starts. Do
+		// not wait another 120 seconds merely to refresh process metadata.
+		if dataDir == "" {
+			deadline := time.Now().Add(120 * time.Second)
+			for time.Now().Before(deadline) {
+				if best := pickBestWeChatInstance(m.wechat.GetWeChatInstances(), exePath, platform); best != nil {
+					newInstance = best
+					if best.DataDir != "" {
+						dataDir = best.DataDir
+						break
+					}
 				}
+				if onStatus != nil {
+					onStatus("[6/6] 密钥已捕获，等待微信登录并准备数据目录")
+				}
+				time.Sleep(1 * time.Second)
 			}
-			if onStatus != nil {
-				onStatus("密钥已捕获，等待微信登录并就绪数据目录...")
-			}
-			time.Sleep(1 * time.Second)
+		} else if onStatus != nil {
+			onStatus("[6/6] 已找到账号数据目录，正在保存数据库密钥")
 		}
 		if newInstance != nil {
 			m.ctx.SwitchCurrent(newInstance)
 		}
 		if dataDir != "" {
-			if _, _, applyErr := keydarwin.ApplyCapturedKeyToDataDir(dataDir, key, onStatus); applyErr != nil {
+			if _, _, applyErr := keydarwin.ApplyCapturedKeysToDataDir(dataDir, candidates, onStatus); applyErr != nil {
 				log.Warn().Err(applyErr).Msg("apply frida key to all_keys.json failed")
 			}
 		}
@@ -264,12 +296,9 @@ func (m *Manager) RestartAndGetDataKey(onStatus func(string)) error {
 			m.ctx.DataDir = dataDir
 		}
 
-		if m.ctx.Current != nil {
-			if imgKey, imgErr := m.ctx.Current.GetImageKey(context.Background()); imgErr == nil && imgKey != "" {
-				m.ctx.ImgKey = imgKey
-				dat2img.SetAesKey(imgKey)
-			}
-		}
+		// Keep image-key extraction separate: its task_for_pid memory-scan
+		// fallback may require elevated privileges. This data-key action must
+		// remain safe to run as the logged-in user.
 		if m.ctx.DataDir != "" {
 			go dat2img.ScanAndSetXorKey(m.ctx.DataDir)
 		}

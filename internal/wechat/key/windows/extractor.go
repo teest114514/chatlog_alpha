@@ -6,9 +6,7 @@ import (
 	"github.com/sjzar/chatlog/internal/wechat/decrypt"
 )
 
-type V4Extractor struct {
-	validator *decrypt.Validator
-}
+type V4Extractor struct{}
 
 func NewV4Extractor() *V4Extractor {
 	return &V4Extractor{}
@@ -21,5 +19,6 @@ func (e *V4Extractor) SearchKey(ctx context.Context, memory []byte) (string, boo
 }
 
 func (e *V4Extractor) SetValidate(validator *decrypt.Validator) {
-	e.validator = validator
+	_ = e
+	_ = validator // Windows validation happens against database pages after scanning.
 }

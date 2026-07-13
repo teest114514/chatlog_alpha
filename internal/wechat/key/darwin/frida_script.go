@@ -38,6 +38,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 try:
@@ -51,6 +52,9 @@ except ImportError:
 
 DEFAULT_WECHAT = "/Applications/WeChat.app/Contents/MacOS/WeChat"
 DEFAULT_APP = "/Applications/WeChat.app"
+FRIDA_CLEANUP_TIMEOUT = 1.5
+FRIDA_SHUTDOWN_TIMEOUT = 1.5
+DEFAULT_COLLECTION_WINDOW = 5.0
 
 # Frida 17+ compatible: Module.getGlobalExportByName
 JS_HOOK = r"""
@@ -105,8 +109,8 @@ function tryHook() {
             this.dkLen = args[8].toInt32();
             this.interesting =
                 this.algo === 2 &&
-                this.prf === 5 &&
-                this.rounds > 1000 &&
+                this.prf >= 1 && this.prf <= 5 &&
+                this.rounds >= 1000 &&
                 this.pwdLen > 0 && this.pwdLen <= 64 &&
                 this.dkLen > 0 && this.dkLen <= 64;
         },
@@ -155,6 +159,67 @@ def emit_error(msg: str, as_json: bool) -> None:
         print(json.dumps({"type": "error", "message": msg}, ensure_ascii=False), flush=True)
     else:
         print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+
+
+def cleanup_frida(script, session, as_json: bool, timeout: float = FRIDA_CLEANUP_TIMEOUT) -> bool:  # noqa: ANN001
+    """Unload the hook and detach without allowing Frida cleanup to hang forever."""
+    if script is None and session is None:
+        return True
+
+    completed = threading.Event()
+    cleanup_errors: list[str] = []
+
+    def _cleanup() -> None:
+        try:
+            if script is not None and not getattr(script, "is_destroyed", False):
+                script.unload()
+        except Exception as e:  # noqa: BLE001
+            cleanup_errors.append(f"script unload failed: {e}")
+
+        try:
+            if session is not None and not getattr(session, "is_detached", False):
+                session.detach()
+        except Exception as e:  # noqa: BLE001
+            cleanup_errors.append(f"session detach failed: {e}")
+        finally:
+            completed.set()
+
+    threading.Thread(target=_cleanup, name="frida-cleanup", daemon=True).start()
+    if not completed.wait(max(0.0, timeout)):
+        emit_error(
+            f"Frida cleanup exceeded {timeout:.1f}s; forcing the injector host to exit",
+            as_json,
+        )
+        return False
+
+    for cleanup_error in cleanup_errors:
+        emit_error(cleanup_error, as_json)
+    return True
+
+
+def shutdown_frida_runtime(as_json: bool, timeout: float = FRIDA_SHUTDOWN_TIMEOUT) -> bool:
+    """Stop Frida's GLib/device-manager runtime so frida-helper is not orphaned."""
+    completed = threading.Event()
+    shutdown_errors: list[str] = []
+
+    def _shutdown() -> None:
+        try:
+            frida.shutdown()
+        except Exception as e:  # noqa: BLE001
+            shutdown_errors.append(f"Frida runtime shutdown failed: {e}")
+        finally:
+            completed.set()
+
+    threading.Thread(target=_shutdown, name="frida-runtime-shutdown", daemon=True).start()
+    if not completed.wait(max(0.0, timeout)):
+        emit_error(
+            f"Frida runtime shutdown exceeded {timeout:.1f}s; forcing the injector host to exit",
+            as_json,
+        )
+        return False
+    for shutdown_error in shutdown_errors:
+        emit_error(shutdown_error, as_json)
+    return not shutdown_errors
 
 
 def find_wechat_pid(exclude: set[int] | None = None) -> int | None:
@@ -273,6 +338,12 @@ def main() -> int:
     ap.add_argument("--exe", default=os.environ.get("WECHAT_EXE", DEFAULT_WECHAT), help="WeChat binary path")
     ap.add_argument("--app", default=os.environ.get("WECHAT_APP", DEFAULT_APP), help="WeChat.app bundle path")
     ap.add_argument("--timeout", type=int, default=180, help="seconds to wait for key (0 = forever)")
+    ap.add_argument(
+        "--collect-window",
+        type=float,
+        default=DEFAULT_COLLECTION_WINDOW,
+        help="seconds to keep the hook after the first key so per-database keys can be captured",
+    )
     ap.add_argument("--json", action="store_true", help="emit JSON lines (for chatlog integration)")
     ap.add_argument("--no-kill", action="store_true", help="do not kill existing WeChat before launch")
     args = ap.parse_args()
@@ -291,7 +362,8 @@ def main() -> int:
         )
 
     captured: list[dict] = []
-    done = {"v": False}
+    capture_signatures: set[tuple[str, str]] = set()
+    state = {"stop": False, "first_capture_at": None}
 
     def on_message(message, data):  # noqa: ANN001
         if message.get("type") == "error":
@@ -304,9 +376,14 @@ def main() -> int:
         if isinstance(payload, dict) and payload.get("type") == "key":
             key = (payload.get("key") or "").lower()
             if len(key) == 64 and all(c in "0123456789abcdef" for c in key):
-                if any(c.get("key") == key for c in captured):
+                salt = (payload.get("salt") or "").lower()
+                signature = (key, salt)
+                if signature in capture_signatures:
                     return
+                capture_signatures.add(signature)
                 captured.append(payload)
+                if state["first_capture_at"] is None:
+                    state["first_capture_at"] = time.monotonic()
                 if args.json:
                     print(
                         json.dumps(
@@ -314,17 +391,13 @@ def main() -> int:
                                 "type": "key",
                                 "key": key,
                                 "derived_key": (payload.get("derived_key") or "").lower() or None,
-                                "salt": (payload.get("salt") or "").lower() or None,
+                                "salt": salt or None,
                                 "rounds": payload.get("rounds"),
                                 "len": payload.get("len"),
+                                "dk_len": payload.get("dk_len"),
+                                "prf": payload.get("prf"),
+                                "algo": payload.get("algo"),
                             },
-                            ensure_ascii=False,
-                        ),
-                        flush=True,
-                    )
-                    print(
-                        json.dumps(
-                            {"type": "done", "key": key, "count": len(captured)},
                             ensure_ascii=False,
                         ),
                         flush=True,
@@ -335,7 +408,6 @@ def main() -> int:
                         f"      {key}\n",
                         flush=True,
                     )
-                done["v"] = True
             return
         if isinstance(payload, dict) and payload.get("type") in ("status", "error"):
             msg = payload.get("message") or str(payload)
@@ -348,7 +420,9 @@ def main() -> int:
             log(str(payload), args.json)
 
     session = None
+    script = None
     pid = None
+    exit_code = 1
     try:
         if mode == "spawn":
             if not os.path.isfile(args.exe):
@@ -359,24 +433,25 @@ def main() -> int:
                 kill_wechat()
             log(f"[*] Spawning WeChat binary (sandbox risk): {args.exe}", args.json)
             pid = frida.spawn([args.exe])
-            session = frida.attach(pid)
+            log("[3/6] 正在挂载微信进程并安装 Frida Hook", args.json)
+            session = frida.attach(pid, persist_timeout=0)
             script = session.create_script(JS_HOOK)
             script.on("message", on_message)
             script.load()
             frida.resume(pid)
-            log("[*] WeChat resumed. Please log in / open chat so DB key is derived...", args.json)
+            log("[4/6] Frida Hook 已安装，等待微信生成数据库密钥", args.json)
 
         elif mode == "attach":
             pid = find_wechat_pid()
             if not pid:
                 emit_error("WeChat process not found (start WeChat or use --mode open)", args.json)
                 return 1
-            log(f"[*] Attaching to WeChat pid={pid}", args.json)
-            session = frida.attach(pid)
+            log(f"[3/6] 正在挂载微信进程 pid={pid} 并安装 Frida Hook", args.json)
+            session = frida.attach(pid, persist_timeout=0)
             script = session.create_script(JS_HOOK)
             script.on("message", on_message)
             script.load()
-            log("[*] Hooked. If no key arrives, restart with --mode open (spawn under LS).", args.json)
+            log("[4/6] Frida Hook 已安装，等待微信生成数据库密钥", args.json)
 
         else:
             # Default: open via LaunchServices then attach ASAP.
@@ -397,16 +472,13 @@ def main() -> int:
             else:
                 existing = find_wechat_pid()
                 if existing:
-                    log(f"[*] WeChat already running pid={existing}, attaching...", args.json)
+                    log(f"[3/6] 正在挂载已运行的微信进程 pid={existing} 并安装 Frida Hook", args.json)
                     pid = existing
-                    session = frida.attach(pid)
+                    session = frida.attach(pid, persist_timeout=0)
                     script = session.create_script(JS_HOOK)
                     script.on("message", on_message)
                     script.load()
-                    log(
-                        "[*] Hooked running instance. Open a chat if key was already derived.",
-                        args.json,
-                    )
+                    log("[4/6] Frida Hook 已安装，请打开聊天以触发数据库密钥", args.json)
 
             if session is None:
                 open_wechat_app(app_path, args.json)
@@ -415,12 +487,12 @@ def main() -> int:
                 if not pid:
                     emit_error("WeChat did not start within 20s after open -a", args.json)
                     return 1
-                log(f"[*] Attaching ASAP to pid={pid} (preserving sandbox user data)...", args.json)
+                log(f"[3/6] 正在挂载微信进程 pid={pid} 并安装 Frida Hook", args.json)
                 # Retry attach briefly — process may not be injectable on first tick.
                 last_err = None
                 for _ in range(50):
                     try:
-                        session = frida.attach(pid)
+                        session = frida.attach(pid, persist_timeout=0)
                         last_err = None
                         break
                     except Exception as e:  # noqa: BLE001
@@ -436,19 +508,20 @@ def main() -> int:
                 script = session.create_script(JS_HOOK)
                 script.on("message", on_message)
                 script.load()
-                log(
-                    "[*] Hooked. Wait for auto-login / open a chat so DB key is derived...",
-                    args.json,
-                )
+                log("[4/6] Frida Hook 已安装，等待登录或聊天触发数据库密钥", args.json)
 
         def _handle_sig(_signum, _frame):  # noqa: ANN001
-            done["v"] = True
+            state["stop"] = True
 
         signal.signal(signal.SIGINT, _handle_sig)
         signal.signal(signal.SIGTERM, _handle_sig)
 
         deadline = None if args.timeout <= 0 else time.time() + args.timeout
-        while not done["v"]:
+        collect_window = max(0.0, float(args.collect_window))
+        while not state["stop"]:
+            first_capture_at = state["first_capture_at"]
+            if first_capture_at is not None and time.monotonic() - first_capture_at >= collect_window:
+                break
             if deadline is not None and time.time() >= deadline:
                 break
             time.sleep(0.2)
@@ -463,36 +536,64 @@ def main() -> int:
             if not args.json:
                 print(f"[*] Done. data_key={key}", flush=True)
             else:
+                unique_keys = len({(c.get("key") or "").lower() for c in captured})
                 print(
-                    json.dumps({"type": "done", "key": key, "count": len(captured)}, ensure_ascii=False),
+                    json.dumps(
+                        {
+                            "type": "done",
+                            "key": key,
+                            "count": len(captured),
+                            "unique_keys": unique_keys,
+                        },
+                        ensure_ascii=False,
+                    ),
                     flush=True,
                 )
-            os._exit(0)
+            exit_code = 0
+            return exit_code
 
         err = (
             "timeout: no key captured. With --mode open, ensure auto-login completes "
             "or open a chat window; increase --timeout if needed."
         )
         emit_error(err, args.json)
-        os._exit(1)
+        return exit_code
     except frida.ProcessNotFoundError as e:
         emit_error(f"process not found: {e}", args.json)
-        os._exit(1)
+        return exit_code
     except frida.PermissionDeniedError as e:
         emit_error(
             f"permission denied (run as the logged-in user, not root if possible): {e}",
             args.json,
         )
-        os._exit(1)
+        return exit_code
     except Exception as e:  # noqa: BLE001
         emit_error(str(e), args.json)
-        os._exit(1)
+        return exit_code
     finally:
+        cleanup_ok = cleanup_frida(script, session, args.json)
+        shutdown_ok = shutdown_frida_runtime(args.json)
+        if cleanup_ok and shutdown_ok:
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "type": "cleanup",
+                            "message": "Frida script unloaded, session detached, and runtime shut down.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+            else:
+                log("[*] Frida script unloaded, session detached, and runtime shut down.", args.json)
+        # Bypass Frida/Python atexit handlers after the bounded explicit cleanup;
+        # some Frida builds otherwise keep a helper-owned stdout pipe alive.
         try:
-            if session is not None:
-                session.detach()
-        except Exception:
-            pass
+            sys.stdout.flush()
+            sys.stderr.flush()
+        finally:
+            os._exit(exit_code)
 
 
 if __name__ == "__main__":

@@ -89,16 +89,16 @@ func runKey(cmd *cobra.Command, args []string) {
 		log.Fatal().Msg("Frida 不可用，请先执行: pip3 install frida-tools")
 	}
 	status("使用 Frida Hook CCKeyDerivationPBKDF 提取密钥...")
-	key, err := keydarwin.ExtractKeyViaFrida(ctx, keyDataDir, status)
+	key, candidates, err := keydarwin.ExtractKeysViaFrida(ctx, keyDataDir, status)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Frida 提取密钥失败")
 	}
 	if keyDataDir != "" {
-		if _, _, err := keydarwin.ApplyCapturedKeyToDataDir(keyDataDir, key, status); err != nil {
+		if _, _, err := keydarwin.ApplyCapturedKeysToDataDir(keyDataDir, candidates, status); err != nil {
 			status(fmt.Sprintf("警告: 写入 all_keys.json 失败: %v", err))
 		}
 	} else if acc := firstAccountWithDataDir(); acc != nil && acc.DataDir != "" {
-		if _, _, err := keydarwin.ApplyCapturedKeyToDataDir(acc.DataDir, key, status); err != nil {
+		if _, _, err := keydarwin.ApplyCapturedKeysToDataDir(acc.DataDir, candidates, status); err != nil {
 			status(fmt.Sprintf("警告: 写入 all_keys.json 失败: %v", err))
 		} else {
 			status("已写入: " + acc.DataDir + "/all_keys.json")

@@ -40,6 +40,10 @@ type Client struct {
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry // rel db path -> decrypted cache entry
+	// resolvedKeys caches a page-validated key per encrypted source DB. This
+	// avoids repeating PBKDF validation on every query while still allowing a
+	// stale path entry in all_keys.json to recover from another saved key.
+	resolvedKeys map[string]string
 }
 
 func (c *Client) DataDir() string { return c.dataDir }
@@ -62,13 +66,74 @@ func NewClient(dataDir, dataKey string) (*Client, error) {
 		return nil, err
 	}
 	allKeys := loadAllKeysMap(normalizedDir)
+	allKeys = recoverMissingDBKeyMappings(normalizedDir, allKeys, dataKey)
 	return &Client{
-		dataDir:  normalizedDir,
-		dataKey:  dataKey,
-		cacheDir: cacheDir,
-		allKeys:  allKeys,
-		cache:    make(map[string]cacheEntry),
+		dataDir:      normalizedDir,
+		dataKey:      dataKey,
+		cacheDir:     cacheDir,
+		allKeys:      allKeys,
+		cache:        make(map[string]cacheEntry),
+		resolvedKeys: make(map[string]string),
 	}, nil
+}
+
+// recoverMissingDBKeyMappings makes databases omitted by an older or partially
+// refreshed all_keys.json discoverable. It only examines missing paths and only
+// adds a mapping after page-level key validation, so the common fully-populated
+// startup path has no extra PBKDF cost.
+func recoverMissingDBKeyMappings(dataDir string, allKeys map[string]string, dataKey string) map[string]string {
+	if allKeys == nil {
+		allKeys = make(map[string]string)
+	}
+	uniqueKeys := make([]string, 0, len(allKeys)+1)
+	seenKeys := make(map[string]struct{}, len(allKeys)+1)
+	appendKey := func(key string) {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if len(key) != 64 {
+			return
+		}
+		if _, err := hex.DecodeString(key); err != nil {
+			return
+		}
+		if _, ok := seenKeys[key]; ok {
+			return
+		}
+		seenKeys[key] = struct{}{}
+		uniqueKeys = append(uniqueKeys, key)
+	}
+	appendKey(dataKey)
+	for _, key := range allKeys {
+		appendKey(key)
+	}
+	if len(uniqueKeys) == 0 {
+		return allKeys
+	}
+	sort.Strings(uniqueKeys)
+
+	_ = filepath.WalkDir(dataDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry == nil || entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".db") {
+			return nil
+		}
+		rel, err := filepath.Rel(dataDir, path)
+		if err != nil {
+			return nil
+		}
+		rel = normalizeKeyPath(filepath.ToSlash(rel))
+		if _, ok := allKeys[rel]; ok {
+			return nil
+		}
+		if _, ok := allKeys[normalizeKeyPath("db_storage/"+rel)]; ok {
+			return nil
+		}
+		for _, key := range uniqueKeys {
+			if validateEncryptedDBKey(path, key) {
+				allKeys[rel] = key
+				break
+			}
+		}
+		return nil
+	})
+	return allKeys
 }
 
 func normalizeDataDir(dataDir string) (string, error) {
@@ -554,18 +619,88 @@ func (c *Client) resolveDataKey(src string) (string, error) {
 	if len(c.allKeys) == 0 {
 		return "", fmt.Errorf("all_keys.json not found for encrypted db: %s", src)
 	}
+	src = filepath.Clean(src)
+	c.mu.Lock()
+	if key := c.resolvedKeys[src]; key != "" {
+		c.mu.Unlock()
+		return key, nil
+	}
+	c.mu.Unlock()
+
+	ordered := make([]string, 0, len(c.allKeys)+1)
+	seen := make(map[string]struct{}, len(c.allKeys)+1)
+	appendKey := func(key string) {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if len(key) != 64 {
+			return
+		}
+		if _, err := hex.DecodeString(key); err != nil {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		ordered = append(ordered, key)
+	}
 	if rel, ok := relPathFromDataDir(c.dataDir, src); ok {
-		candidates := []string{
+		paths := []string{
 			normalizeKeyPath(rel),
 			normalizeKeyPath(strings.TrimPrefix(rel, "db_storage/")),
 		}
-		for _, p := range candidates {
-			if key, ok := c.allKeys[p]; ok && len(key) == 64 {
-				return key, nil
+		for _, path := range paths {
+			if key, ok := c.allKeys[path]; ok {
+				appendKey(key)
 			}
 		}
 	}
-	return "", fmt.Errorf("all_keys.json missing key for db: %s", src)
+	appendKey(c.dataKey)
+	remaining := make([]string, 0, len(c.allKeys))
+	for _, key := range c.allKeys {
+		key = strings.ToLower(strings.TrimSpace(key))
+		if _, ok := seen[key]; !ok {
+			remaining = append(remaining, key)
+		}
+	}
+	sort.Strings(remaining)
+	for _, key := range remaining {
+		appendKey(key)
+	}
+
+	for _, key := range ordered {
+		if !validateEncryptedDBKey(src, key) {
+			continue
+		}
+		c.mu.Lock()
+		c.resolvedKeys[src] = key
+		c.mu.Unlock()
+		return key, nil
+	}
+	if len(ordered) == 0 {
+		return "", fmt.Errorf("all_keys.json missing key for db: %s", src)
+	}
+	return "", fmt.Errorf("all_keys.json has no verified key for db: %s", src)
+}
+
+func validateEncryptedDBKey(src, keyHex string) bool {
+	key, err := hex.DecodeString(strings.TrimSpace(keyHex))
+	if err != nil || len(key) != 32 {
+		return false
+	}
+	decryptor, err := decrypt.NewDecryptor(runtime.GOOS, 4)
+	if err != nil {
+		return false
+	}
+	file, err := os.Open(src)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	page := make([]byte, decryptor.GetPageSize())
+	if _, err := io.ReadFull(file, page); err != nil {
+		return false
+	}
+	return decryptor.Validate(page, key)
 }
 
 func loadAllKeysMap(dataDir string) map[string]string {

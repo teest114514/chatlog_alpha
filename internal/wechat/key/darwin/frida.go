@@ -13,16 +13,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/sjzar/chatlog/internal/wechat/decrypt"
 	"github.com/sjzar/chatlog/internal/wechat/decrypt/common"
+	keyshared "github.com/sjzar/chatlog/internal/wechat/key/shared"
 	"github.com/sjzar/chatlog/internal/wechat/model"
 )
 
 const (
 	defaultFridaTimeout = 180 * time.Second
+	fridaCleanupGrace   = 3 * time.Second
+	fridaExitGrace      = 2 * time.Second
 	defaultWeChatExe    = "/Applications/WeChat.app/Contents/MacOS/WeChat"
 	fridaScriptFileName = "wechat_key_frida.py"
 )
@@ -41,9 +45,17 @@ func FridaAvailable() bool {
 	return strings.TrimSpace(string(out)) != ""
 }
 
-// ExtractKeyViaFrida launches WeChat via LaunchServices (`open -a`), attaches
-// Frida ASAP, hooks CCKeyDerivationPBKDF, captures the 32-byte DB password,
-// validates against db_storage, and writes all_keys.json.
+// ExtractKeyViaFrida is the compatibility wrapper for callers that only need
+// the primary message-database key.
+func ExtractKeyViaFrida(ctx context.Context, dataDir string, status func(string)) (string, error) {
+	primary, _, err := ExtractKeysViaFrida(ctx, dataDir, status)
+	return primary, err
+}
+
+// ExtractKeysViaFrida launches WeChat via LaunchServices (`open -a`), attaches
+// Frida ASAP, hooks CCKeyDerivationPBKDF, briefly collects every 32-byte DB
+// password, validates each candidate against db_storage, and writes per-DB
+// mappings to all_keys.json.
 //
 // Why not frida.spawn(raw binary)? Spawning the executable bypasses macOS
 // LaunchServices / sandbox container setup, so WeChat often starts with an
@@ -52,20 +64,20 @@ func FridaAvailable() bool {
 // status may be nil. dataDir may be empty at start (filled after login); when
 // empty, the key is still returned if captured, but all_keys.json is only
 // written when a dataDir can be resolved and at least one DB validates.
-func ExtractKeyViaFrida(ctx context.Context, dataDir string, status func(string)) (string, error) {
+func ExtractKeysViaFrida(ctx context.Context, dataDir string, status func(string)) (string, []CapturedDBKey, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if status != nil {
-		status("检查 Frida 环境...")
+		status("[1/6] 检查 Frida 环境")
 	}
 	if !FridaAvailable() {
-		return "", fmt.Errorf("Frida 不可用：请先执行 pip3 install frida-tools")
+		return "", nil, fmt.Errorf("Frida 不可用：请先执行 pip3 install frida-tools")
 	}
 
 	scriptPath, cleanup, err := resolveFridaScript()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if cleanup != nil {
 		defer cleanup()
@@ -76,7 +88,7 @@ func ExtractKeyViaFrida(ctx context.Context, dataDir string, status func(string)
 		exe = defaultWeChatExe
 	}
 	if st, err := os.Stat(exe); err != nil || st.IsDir() {
-		return "", fmt.Errorf("未找到微信可执行文件: %s", exe)
+		return "", nil, fmt.Errorf("未找到微信可执行文件: %s", exe)
 	}
 
 	timeout := defaultFridaTimeout
@@ -88,7 +100,7 @@ func ExtractKeyViaFrida(ctx context.Context, dataDir string, status func(string)
 
 	py, err := findPython3()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Default --mode open: open -a WeChat (sandbox container / user data intact)
@@ -109,24 +121,53 @@ func ExtractKeyViaFrida(ctx context.Context, dataDir string, status func(string)
 	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", fmt.Errorf("创建 Frida 输出管道失败: %w", err)
+		return "", nil, fmt.Errorf("创建 Frida 输出管道失败: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return "", fmt.Errorf("创建 Frida 错误管道失败: %w", err)
+		return "", nil, fmt.Errorf("创建 Frida 错误管道失败: %w", err)
 	}
 
 	if status != nil {
 		if mode == "open" {
-			status("正在通过 open -a 启动微信（保留用户数据）并用 Frida Hook 密钥...")
+			status("[2/6] 正在重启并通过 LaunchServices 启动微信")
 		} else {
-			status(fmt.Sprintf("正在通过 Frida mode=%s 提取密钥...", mode))
+			status(fmt.Sprintf("[2/6] 正在通过 Frida mode=%s 定位微信进程", mode))
 		}
 	}
 	log.Info().Str("script", scriptPath).Str("exe", exe).Str("mode", mode).Msg("starting frida key capture")
 
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("启动 Frida 脚本失败: %w", err)
+		return "", nil, fmt.Errorf("启动 Frida 脚本失败: %w", err)
+	}
+	var closeOutputOnce sync.Once
+	closeInjectorOutput := func() {
+		closeOutputOnce.Do(func() {
+			// A Frida helper may inherit the pipe. Closing our read end after the
+			// structured cleanup event guarantees Scanner cannot wait on it.
+			_ = stdout.Close()
+		})
+	}
+	var stopInjectorOnce sync.Once
+	stopInjectorHost := func(reason string) {
+		stopInjectorOnce.Do(func() {
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			closeInjectorOutput()
+			log.Debug().Str("reason", reason).Msg("stopped frida injector host")
+		})
+	}
+	contextMonitorDone := make(chan struct{})
+	defer close(contextMonitorDone)
+	if ctxDone := ctx.Done(); ctxDone != nil {
+		go func() {
+			select {
+			case <-ctxDone:
+				stopInjectorHost("context canceled")
+			case <-contextMonitorDone:
+			}
+		}()
 	}
 
 	// Drain stderr so the process cannot block on a full pipe.
@@ -145,9 +186,41 @@ func ExtractKeyViaFrida(ctx context.Context, dataDir string, status func(string)
 	}()
 
 	var (
-		capturedKey string
-		lastErr     string
+		capturedKey        string
+		capturedCandidates []CapturedDBKey
+		candidateSeen      = make(map[string]struct{})
+		lastErr            string
+		cleanupTimer       *time.Timer
 	)
+	appendCandidate := func(msg fridaMsg) bool {
+		key := strings.ToLower(strings.TrimSpace(msg.Key))
+		if len(key) != 64 {
+			return false
+		}
+		if _, err := hex.DecodeString(key); err != nil {
+			return false
+		}
+		salt := strings.ToLower(strings.TrimSpace(msg.Salt))
+		signature := key + "|" + salt
+		if _, ok := candidateSeen[signature]; ok {
+			return false
+		}
+		candidateSeen[signature] = struct{}{}
+		capturedCandidates = append(capturedCandidates, CapturedDBKey{
+			Key:        key,
+			DerivedKey: strings.ToLower(strings.TrimSpace(msg.DerivedKey)),
+			Salt:       salt,
+			Rounds:     msg.Rounds,
+			Len:        msg.Len,
+			DerivedLen: msg.DerivedLen,
+			PRF:        msg.PRF,
+			Algorithm:  msg.Algorithm,
+		})
+		if capturedKey == "" {
+			capturedKey = key
+		}
+		return true
+	}
 	sc := bufio.NewScanner(stdout)
 	// keys are short JSON lines; allow larger just in case
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -166,6 +239,24 @@ func ExtractKeyViaFrida(ctx context.Context, dataDir string, status func(string)
 			if status != nil && msg.Message != "" {
 				status(msg.Message)
 			}
+		case "cleanup":
+			if status != nil {
+				status("[5/6] Frida Hook、会话和运行时均已释放")
+			}
+			if capturedKey != "" {
+				// The structured event is emitted only after script unload, session
+				// detach, and frida.shutdown. Close the potentially inherited pipe,
+				// then allow Python to perform its immediate os._exit. Kill it only
+				// if that bounded exit still fails.
+				closeInjectorOutput()
+				if cleanupTimer != nil {
+					cleanupTimer.Stop()
+				}
+				cleanupTimer = time.AfterFunc(fridaExitGrace, func() {
+					log.Warn().Msg("frida host exit grace expired; forcing injector host shutdown")
+					stopInjectorHost("host exit grace expired")
+				})
+			}
 		case "error":
 			if msg.Message != "" {
 				lastErr = msg.Message
@@ -173,65 +264,87 @@ func ExtractKeyViaFrida(ctx context.Context, dataDir string, status func(string)
 					status("Frida: " + msg.Message)
 				}
 			}
-		case "key", "done":
+		case "key":
+			if appendCandidate(msg) && status != nil {
+				status(fmt.Sprintf("[4/6] 已捕获 %d 条数据库密钥候选，继续短时收集其他数据库密钥", len(capturedCandidates)))
+			}
+		case "done":
+			_ = appendCandidate(msg)
 			key := strings.ToLower(strings.TrimSpace(msg.Key))
 			if len(key) == 64 {
 				if _, err := hex.DecodeString(key); err == nil {
 					capturedKey = key
-					if status != nil {
-						status("已捕获数据库密钥，正在验证...")
-					}
-					// Stop child immediately — session.detach can hang under WeChat.
-					if cmd.Process != nil {
-						_ = cmd.Process.Kill()
-					}
-					// Drain remaining scan in background is unnecessary; break out.
-					goto fridaDone
+				}
+			}
+			if capturedKey != "" {
+				if status != nil {
+					status(fmt.Sprintf("[5/6] 候选收集完成（%d 条），正在卸载 Frida Hook", len(capturedCandidates)))
+				}
+				// Start the fallback only after Python reports collection complete.
+				// Starting it on the first key would cut off per-database keys.
+				if cleanupTimer == nil {
+					cleanupTimer = time.AfterFunc(fridaCleanupGrace, func() {
+						log.Warn().Msg("frida cleanup grace expired; forcing injector host shutdown")
+						stopInjectorHost("cleanup grace expired")
+					})
 				}
 			}
 		}
 	}
-fridaDone:
-	_ = sc.Err()
+	scanErr := sc.Err()
 
-	// Wait may return "signal: killed" after we force-kill on success — ignore if key ok.
+	// Wait may return "signal: killed" if bounded cleanup needed its fallback.
 	waitErr := cmd.Wait()
+	if cleanupTimer != nil {
+		cleanupTimer.Stop()
+	}
 	if capturedKey == "" {
 		if lastErr != "" {
-			return "", fmt.Errorf("Frida 未捕获到密钥: %s", lastErr)
+			return "", nil, fmt.Errorf("Frida 未捕获到密钥: %s", lastErr)
+		}
+		if scanErr != nil {
+			return "", nil, fmt.Errorf("读取 Frida 输出失败: %w", scanErr)
 		}
 		if waitErr != nil {
-			return "", fmt.Errorf("Frida 提 key 失败: %w", waitErr)
+			return "", nil, fmt.Errorf("Frida 提 key 失败: %w", waitErr)
 		}
-		return "", fmt.Errorf("Frida 未捕获到密钥（请登录微信并打开聊天窗口后重试）")
+		return "", nil, fmt.Errorf("Frida 未捕获到密钥（请登录微信并打开聊天窗口后重试）")
 	}
 	_ = waitErr
+	if status != nil {
+		status("[6/6] 正在验证数据库密钥并保存配置")
+	}
 
 	// Optional: persist all_keys.json when dataDir is known.
 	if dataDir != "" {
-		if n, err := writeAllKeysFromCapturedKey(dataDir, capturedKey, status); err != nil {
-			log.Warn().Err(err).Msg("write all_keys.json from frida key failed")
+		if n, err := writeAllKeysFromCapturedKeys(dataDir, capturedCandidates, status); err != nil {
+			log.Warn().Err(err).Msg("write all_keys.json from frida keys failed")
 			if status != nil {
-				status(fmt.Sprintf("密钥已捕获但写入 all_keys.json 失败: %v（仍返回密钥）", err))
+				status(fmt.Sprintf("候选密钥已捕获但写入 all_keys.json 失败: %v（仍返回主密钥）", err))
 			}
 		} else if status != nil {
-			status(fmt.Sprintf("已写入 all_keys.json（%d 条）", n))
+			status(fmt.Sprintf("[6/6] 逐库校验完成，已写入 all_keys.json（%d 条有效映射）", n))
 		}
 	}
 
-	return capturedKey, nil
+	return capturedKey, capturedCandidates, nil
 }
 
 // ApplyCapturedKeyToDataDir validates a key against DBs under dataDir and writes all_keys.json.
 func ApplyCapturedKeyToDataDir(dataDir, keyHex string, status func(string)) (string, int, error) {
-	keyHex = strings.ToLower(strings.TrimSpace(keyHex))
-	if len(keyHex) != 64 {
-		return "", 0, fmt.Errorf("invalid key length")
+	return ApplyCapturedKeysToDataDir(dataDir, []CapturedDBKey{{Key: keyHex}}, status)
+}
+
+// ApplyCapturedKeysToDataDir validates each captured candidate against every DB
+// and writes only verified per-database mappings. Existing verified mappings are
+// retained, so a refresh cannot destroy a special-purpose DB key that was not
+// observed during this short capture window.
+func ApplyCapturedKeysToDataDir(dataDir string, candidates []CapturedDBKey, status func(string)) (string, int, error) {
+	candidates = normalizeCapturedKeys(candidates)
+	if len(candidates) == 0 {
+		return "", 0, fmt.Errorf("没有有效的数据库密钥候选")
 	}
-	if _, err := hex.DecodeString(keyHex); err != nil {
-		return "", 0, fmt.Errorf("invalid key hex: %w", err)
-	}
-	n, err := writeAllKeysFromCapturedKey(dataDir, keyHex, status)
+	n, err := writeAllKeysFromCapturedKeys(dataDir, candidates, status)
 	if err != nil {
 		return "", 0, err
 	}
@@ -239,7 +352,7 @@ func ApplyCapturedKeyToDataDir(dataDir, keyHex string, status func(string)) (str
 	if err != nil {
 		// Still return the captured key if message preference failed but file was written.
 		if n > 0 {
-			return keyHex, n, nil
+			return candidates[0].Key, n, nil
 		}
 		return "", n, err
 	}
@@ -254,10 +367,47 @@ type fridaMsg struct {
 	Salt       string `json:"salt"`
 	Rounds     int    `json:"rounds"`
 	Len        int    `json:"len"`
+	DerivedLen int    `json:"dk_len"`
+	PRF        int    `json:"prf"`
+	Algorithm  int    `json:"algo"`
 	Count      int    `json:"count"`
+	UniqueKeys int    `json:"unique_keys"`
 }
 
-func writeAllKeysFromCapturedKey(dataDir, keyHex string, status func(string)) (int, error) {
+func normalizeCapturedKeys(candidates []CapturedDBKey) []CapturedDBKey {
+	result := make([]CapturedDBKey, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		candidate.Key = strings.ToLower(strings.TrimSpace(candidate.Key))
+		candidate.Salt = strings.ToLower(strings.TrimSpace(candidate.Salt))
+		candidate.DerivedKey = strings.ToLower(strings.TrimSpace(candidate.DerivedKey))
+		if len(candidate.Key) != 64 {
+			continue
+		}
+		if decoded, err := hex.DecodeString(candidate.Key); err != nil || len(decoded) != 32 {
+			continue
+		}
+		signature := candidate.Key + "|" + candidate.Salt
+		if _, ok := seen[signature]; ok {
+			continue
+		}
+		seen[signature] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+type candidateKey struct {
+	key      string
+	salt     string
+	captured bool
+}
+
+func writeAllKeysFromCapturedKeys(dataDir string, captured []CapturedDBKey, status func(string)) (int, error) {
+	captured = normalizeCapturedKeys(captured)
+	if len(captured) == 0 {
+		return 0, fmt.Errorf("没有有效的数据库密钥候选")
+	}
 	accountDir, dbStorageDir := resolveDBDirs(dataDir)
 	dbSalts, err := collectDBSalts(dbStorageDir)
 	if err != nil {
@@ -267,53 +417,191 @@ func writeAllKeysFromCapturedKey(dataDir, keyHex string, status func(string)) (i
 		return 0, fmt.Errorf("未找到可用加密数据库（db_storage）")
 	}
 
-	keyBytes, err := hex.DecodeString(keyHex)
-	if err != nil {
-		return 0, err
-	}
 	d, err := decrypt.NewDecryptor(model.PlatformDarwin, 4)
 	if err != nil {
 		return 0, err
 	}
 
-	// Account DBs share one passphrase. Validate against any DB that has a full page;
-	// then write the same key for every encrypted db entry.
-	validated := 0
+	keysPath := filepath.Join(accountDir, "all_keys.json")
+	existing := readExistingKeyMap(keysPath)
+	allCandidates := make([]candidateKey, 0, len(captured)+len(existing))
+	for _, candidate := range captured {
+		allCandidates = append(allCandidates, candidateKey{
+			key:      candidate.Key,
+			salt:     candidate.Salt,
+			captured: true,
+		})
+	}
+	for _, key := range existing {
+		allCandidates = append(allCandidates, candidateKey{key: key})
+	}
+
+	out := make(map[string]keyFileEntry, len(dbSalts))
+	validatedCaptured := 0
+	preservedUnreadable := 0
+	unmatched := make([]string, 0)
 	for _, ds := range dbSalts {
-		dbPath := resolveDBPath(dataDir, ds.DBRel)
-		dbInfo, err := common.OpenDBFile(dbPath, 4096)
-		if err != nil {
+		dbRel := keyshared.NormalizeDBPath(ds.DBRel)
+		dbPath := resolveDBPath(dataDir, dbRel)
+		dbInfo, openErr := common.OpenDBFile(dbPath, 4096)
+		if openErr != nil {
+			// Do not erase a prior mapping merely because a DB is temporarily
+			// truncated, locked, or unreadable during WeChat startup.
+			if oldKey := normalizeHexKey(existing[dbRel]); oldKey != "" {
+				out[dbRel] = keyFileEntry{EncKey: oldKey}
+				preservedUnreadable++
+			}
 			continue
 		}
-		if d.Validate(dbInfo.FirstPage, keyBytes) {
-			validated++
+
+		ordered := orderCandidatesForDB(allCandidates, existing[dbRel], ds.SaltHex)
+		matched := false
+		for _, candidate := range ordered {
+			keyBytes, decodeErr := hex.DecodeString(candidate.key)
+			if decodeErr != nil || len(keyBytes) != 32 || !d.Validate(dbInfo.FirstPage, keyBytes) {
+				continue
+			}
+			out[dbRel] = keyFileEntry{EncKey: candidate.key}
+			if candidate.captured {
+				validatedCaptured++
+			}
+			matched = true
+			break
+		}
+		if !matched {
+			unmatched = append(unmatched, dbRel)
 		}
 	}
-	if validated == 0 {
-		if status != nil {
-			status("密钥尚未通过 DB 页校验，仍写入候选 all_keys.json 供后续使用")
+
+	if len(out) == 0 {
+		return 0, fmt.Errorf("候选密钥未通过任何数据库页校验，未修改 all_keys.json")
+	}
+	if status != nil {
+		status(fmt.Sprintf("逐库校验：%d 个数据库已匹配（本次候选命中 %d 个）", len(out), validatedCaptured))
+		if preservedUnreadable > 0 {
+			status(fmt.Sprintf("另有 %d 个暂不可读数据库保留原有映射", preservedUnreadable))
 		}
-	} else if status != nil {
-		status(fmt.Sprintf("密钥校验通过：%d 个数据库", validated))
+		if len(unmatched) > 0 {
+			shown := unmatched
+			if len(shown) > 4 {
+				shown = shown[:4]
+			}
+			detail := strings.Join(shown, "、")
+			if len(shown) < len(unmatched) {
+				detail += " 等"
+			}
+			status(fmt.Sprintf("仍有 %d 个数据库未匹配（%s）；不会写入未经验证的密钥", len(unmatched), detail))
+		}
 	}
 
-	out := map[string]keyFileEntry{}
-	for _, ds := range dbSalts {
-		out[ds.DBRel] = keyFileEntry{EncKey: keyHex}
-	}
-
-	keysPath := filepath.Join(accountDir, "all_keys.json")
 	raw, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return 0, fmt.Errorf("序列化 all_keys.json 失败: %w", err)
 	}
-	if err := os.WriteFile(keysPath, raw, 0600); err != nil {
+	if err := writeFileAtomic(keysPath, raw, 0600); err != nil {
 		return 0, fmt.Errorf("写入 %s 失败: %w", keysPath, err)
 	}
 	if err := normalizeAllKeysOwnership(keysPath); err != nil && status != nil {
 		status(fmt.Sprintf("警告：all_keys.json 权限归一化失败：%v", err))
 	}
 	return len(out), nil
+}
+
+func normalizeHexKey(key string) string {
+	key = strings.ToLower(strings.TrimSpace(key))
+	if len(key) != 64 {
+		return ""
+	}
+	decoded, err := hex.DecodeString(key)
+	if err != nil || len(decoded) != 32 {
+		return ""
+	}
+	return key
+}
+
+func readExistingKeyMap(path string) map[string]string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]string{}
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(content, &raw); err != nil {
+		return map[string]string{}
+	}
+	result := make(map[string]string, len(raw))
+	for dbPath, value := range raw {
+		var key string
+		if err := json.Unmarshal(value, &key); err != nil {
+			var entry keyFileEntry
+			if err := json.Unmarshal(value, &entry); err != nil {
+				continue
+			}
+			key = entry.EncKey
+		}
+		if key = normalizeHexKey(key); key != "" {
+			result[keyshared.NormalizeDBPath(dbPath)] = key
+		}
+	}
+	return result
+}
+
+func orderCandidatesForDB(candidates []candidateKey, existingKey, salt string) []candidateKey {
+	salt = strings.ToLower(strings.TrimSpace(salt))
+	existingKey = normalizeHexKey(existingKey)
+	result := make([]candidateKey, 0, len(candidates)+1)
+	seen := make(map[string]struct{}, len(candidates)+1)
+	appendKey := func(candidate candidateKey) {
+		candidate.key = normalizeHexKey(candidate.key)
+		if candidate.key == "" {
+			return
+		}
+		if _, ok := seen[candidate.key]; ok {
+			return
+		}
+		seen[candidate.key] = struct{}{}
+		result = append(result, candidate)
+	}
+	// A PBKDF call carrying this DB's page salt is the strongest candidate.
+	for _, candidate := range candidates {
+		if candidate.captured && candidate.salt != "" && candidate.salt == salt {
+			appendKey(candidate)
+		}
+	}
+	// Preserve a previously verified path-specific mapping before trying
+	// unrelated historical keys.
+	if existingKey != "" {
+		appendKey(candidateKey{key: existingKey})
+	}
+	for _, candidate := range candidates {
+		appendKey(candidate)
+	}
+	return result
+}
+
+func writeFileAtomic(path string, content []byte, mode os.FileMode) error {
+	directory := filepath.Dir(path)
+	tmp, err := os.CreateTemp(directory, ".all_keys_*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func findPython3() (string, error) {

@@ -31,8 +31,10 @@ const (
 
 [yellow]3. 获取密钥并解密数据[white]
    macOS 数据库密钥 [yellow]仅支持 Frida[white]：先 [yellow]pip3 install frida-tools[white]，
-   再选「重启并获取密钥」或命令行 [yellow]chatlog key[white]（Hook CCKeyDerivationPBKDF）。
-   之后选择"解密数据"。密钥会写入 all_keys.json 供查询链路使用。
+	   再选「重启并获取数据库密钥」或命令行 [yellow]chatlog key[white]（Hook CCKeyDerivationPBKDF）。
+	   之后选择"解密数据"。密钥会写入 all_keys.json 供查询链路使用。
+	   「获取图片密钥」为独立功能；普通用户权限不足时会弹出 macOS 临时管理员授权窗口，
+	   仅提升短生命周期的扫描子进程，TUI 本身不会以 root 运行。
 
 [yellow]4. 启动 HTTP 服务[white]
    选择"启动 HTTP 服务"菜单项，启动 HTTP 和 MCP 服务。
