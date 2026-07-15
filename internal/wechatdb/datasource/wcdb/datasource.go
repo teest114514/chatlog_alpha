@@ -290,6 +290,7 @@ func (ds *DataSource) GetChatRooms(ctx context.Context, key string, limit, offse
 		return nil, err
 	}
 	items := make([]*model.ChatRoom, 0, len(rows))
+	seen := make(map[string]bool)
 	for _, row := range rows {
 		chat := (&model.ChatRoomV4{
 			UserName:  toString(row["username"]),
@@ -299,7 +300,33 @@ func (ds *DataSource) GetChatRooms(ctx context.Context, key string, limit, offse
 		if key != "" && chat.Name != key {
 			continue
 		}
+		seen[chat.Name] = true
 		items = append(items, chat)
+	}
+	// contact 表的 chat_room 有时缺失只在消息里出现过的群（例如从未打开过详情的群）。
+	// 用各 message DB 的 Name2Id 表补齐这些 @chatroom，避免群列表漏项。
+	if msgDBs, err2 := ds.client.ListMessageDBs(); err2 == nil {
+		for _, dbPath := range msgDBs {
+			n2iRows, err3 := ds.client.Query("message", dbPath, `SELECT user_name FROM Name2Id WHERE user_name LIKE '%@chatroom'`)
+			if err3 != nil {
+				continue
+			}
+			for _, r := range n2iRows {
+				name := toString(r["user_name"])
+				if name == "" || seen[name] {
+					continue
+				}
+				if key != "" && name != key {
+					continue
+				}
+				seen[name] = true
+				items = append(items, &model.ChatRoom{
+					Name:             name,
+					Users:            make([]model.ChatRoomUser, 0),
+					User2DisplayName: make(map[string]string),
+				})
+			}
+		}
 	}
 	if offset > len(items) {
 		return []*model.ChatRoom{}, nil
