@@ -86,12 +86,15 @@ func (r *Repository) initChatRoomCache(ctx context.Context) error {
 	sort.Strings(chatRoomRemark)
 	sort.Strings(chatRoomNickName)
 
+	// 整批替换 cache 引用，跟所有读者共享同一把 RWMutex —— 读者拿到完整一致快照
+	r.cacheMu.Lock()
 	r.chatRoomCache = chatRoomMap
 	r.remarkToChatRoom = remarkToChatRoom
 	r.nickNameToChatRoom = nickNameToChatRoom
 	r.chatRoomList = chatRoomList
 	r.chatRoomRemark = chatRoomRemark
 	r.chatRoomNickName = chatRoomNickName
+	r.cacheMu.Unlock()
 
 	return nil
 }
@@ -116,7 +119,10 @@ func (r *Repository) GetChatRooms(ctx context.Context, key string, limit, offset
 			return ret[offset:end], nil
 		}
 	} else {
+		r.cacheMu.RLock()
 		list := r.chatRoomList
+		cache := r.chatRoomCache
+		r.cacheMu.RUnlock()
 		if limit > 0 {
 			end := offset + limit
 			if end > len(list) {
@@ -128,7 +134,7 @@ func (r *Repository) GetChatRooms(ctx context.Context, key string, limit, offset
 			list = list[offset:end]
 		}
 		for _, name := range list {
-			ret = append(ret, r.chatRoomCache[name])
+			ret = append(ret, cache[name])
 		}
 	}
 
@@ -145,13 +151,18 @@ func (r *Repository) GetChatRoom(ctx context.Context, key string) (*model.ChatRo
 
 // enrichChatRoom 从联系人信息中补充群聊信息
 func (r *Repository) enrichChatRoom(chatRoom *model.ChatRoom) {
-	if contact, ok := r.contactCache[chatRoom.Name]; ok {
+	r.cacheMu.RLock()
+	contact, ok := r.contactCache[chatRoom.Name]
+	r.cacheMu.RUnlock()
+	if ok {
 		chatRoom.Remark = contact.Remark
 		chatRoom.NickName = contact.NickName
 	}
 }
 
 func (r *Repository) findChatRoom(key string) *model.ChatRoom {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	if chatRoom, ok := r.chatRoomCache[key]; ok {
 		return chatRoom
 	}
@@ -178,6 +189,8 @@ func (r *Repository) findChatRoom(key string) *model.ChatRoom {
 }
 
 func (r *Repository) findChatRooms(key string) []*model.ChatRoom {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	ret := make([]*model.ChatRoom, 0)
 	distinct := make(map[string]bool)
 	if chatRoom, ok := r.chatRoomCache[key]; ok {

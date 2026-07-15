@@ -80,6 +80,8 @@ func (r *Repository) initContactCache(ctx context.Context) error {
 	sort.Strings(remarkList)
 	sort.Strings(nickNameList)
 
+	// 整批替换 cache 引用，跟所有读者共享同一把 RWMutex
+	r.cacheMu.Lock()
 	r.contactCache = contactMap
 	r.aliasToContact = aliasMap
 	r.remarkToContact = remarkMap
@@ -90,6 +92,7 @@ func (r *Repository) initContactCache(ctx context.Context) error {
 	r.aliasList = aliasList
 	r.remarkList = remarkList
 	r.nickNameList = nickNameList
+	r.cacheMu.Unlock()
 	return nil
 }
 
@@ -120,7 +123,10 @@ func (r *Repository) GetContacts(ctx context.Context, key string, limit, offset 
 			return ret[offset:end], nil
 		}
 	} else {
+		r.cacheMu.RLock()
 		list := r.contactList
+		cache := r.contactCache
+		r.cacheMu.RUnlock()
 		if limit > 0 {
 			end := offset + limit
 			if end > len(list) {
@@ -132,13 +138,15 @@ func (r *Repository) GetContacts(ctx context.Context, key string, limit, offset 
 			list = list[offset:end]
 		}
 		for _, name := range list {
-			ret = append(ret, r.contactCache[name])
+			ret = append(ret, cache[name])
 		}
 	}
 	return ret, nil
 }
 
 func (r *Repository) findContact(key string) *model.Contact {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	if contact, ok := r.contactCache[key]; ok {
 		return contact
 	}
@@ -172,6 +180,8 @@ func (r *Repository) findContact(key string) *model.Contact {
 }
 
 func (r *Repository) findContacts(key string) []*model.Contact {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	ret := make([]*model.Contact, 0)
 	distinct := make(map[string]bool)
 	if contact, ok := r.contactCache[key]; ok {
@@ -239,6 +249,8 @@ func (r *Repository) findContacts(key string) []*model.Contact {
 
 // getFullContact 获取联系人信息，包括群聊成员
 func (r *Repository) getFullContact(userName string) *model.Contact {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	// 先查找联系人缓存
 	if contact, ok := r.contactCache[userName]; ok {
 		return contact
