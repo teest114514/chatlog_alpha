@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +23,17 @@ import (
 	"github.com/sjzar/chatlog/internal/model"
 	"github.com/sjzar/chatlog/internal/wechatdb"
 )
+
+// chatlog 的 data_dir 命名规则：wxid_<id>_<hex-local-suffix>；strip 后即真正的
+// 微信 wxid（例：wxid_example_1a2b → wxid_example）。
+var chatlogLocalSuffixRe = regexp.MustCompile(`_[0-9a-f]{1,8}$`)
+
+func stripChatlogLocalSuffix(account string) string {
+	if account == "" {
+		return ""
+	}
+	return chatlogLocalSuffixRe.ReplaceAllString(account, "")
+}
 
 const (
 	defaultPollInterval  = 2 * time.Second
@@ -39,6 +51,10 @@ type Config interface {
 	GetDataDir() string
 	GetHTTPAddr() string
 	GetSemanticConfig() *conf.SemanticConfig
+	// GetAccount 返回当前 chatlog 监听的 raw account ID（含 local hex suffix，如
+	// wxid_example_1a2b）。messagehook strip 后填到 Event.OwnerWxid，让 webhook
+	// 接收方能判断消息属于哪个微信账号，避免切号后数据错乱。
+	GetAccount() string
 }
 
 type ContextMessage struct {
@@ -52,21 +68,24 @@ type ContextMessage struct {
 }
 
 type Event struct {
-	ID             int64            `json:"id"`
-	CreatedAt      string           `json:"created_at"`
-	RuleType       string           `json:"rule_type"`
-	RuleLabel      string           `json:"rule_label"`
-	Keyword        string           `json:"keyword"`
-	Talker         string           `json:"talker"`
-	TalkerName     string           `json:"talker_name"`
-	Sender         string           `json:"sender"`
-	SenderName     string           `json:"sender_name"`
-	TriggerSeq     int64            `json:"trigger_seq"`
-	TriggerType    int64            `json:"trigger_type"`
-	TriggerTime    string           `json:"trigger_time"`
-	TriggerContent string           `json:"trigger_content"`
-	Context        []ContextMessage `json:"context"`
-	Deliveries     []DeliveryResult `json:"deliveries,omitempty"`
+	ID             int64  `json:"id"`
+	CreatedAt      string `json:"created_at"`
+	RuleType       string `json:"rule_type"`
+	RuleLabel      string `json:"rule_label"`
+	Keyword        string `json:"keyword"`
+	Talker         string `json:"talker"`
+	TalkerName     string `json:"talker_name"`
+	Sender         string `json:"sender"`
+	SenderName     string `json:"sender_name"`
+	TriggerSeq     int64  `json:"trigger_seq"`
+	TriggerType    int64  `json:"trigger_type"`
+	TriggerTime    string `json:"trigger_time"`
+	TriggerContent string `json:"trigger_content"`
+	// OwnerWxid 是当前 chatlog 监听的微信账号 wxid（已 strip local suffix），
+	// 让 webhook 接收方能区分消息属于哪个账号。
+	OwnerWxid  string           `json:"owner_wxid,omitempty"`
+	Context    []ContextMessage `json:"context"`
+	Deliveries []DeliveryResult `json:"deliveries,omitempty"`
 }
 
 type DeliveryResult struct {
@@ -245,6 +264,7 @@ func (s *Service) buildEvent(trigger *model.Message, ruleType, ruleLabel, keywor
 		TriggerType:    trigger.Type,
 		TriggerTime:    trigger.Time.Format("2006-01-02 15:04:05"),
 		TriggerContent: triggerContent,
+		OwnerWxid:      stripChatlogLocalSuffix(s.conf.GetAccount()),
 	}
 	evt.Context = s.loadContext(trigger, beforeCount, afterCount)
 	return evt

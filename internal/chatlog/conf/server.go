@@ -82,6 +82,12 @@ func (c *ServerConfig) GetMessageHook() *MessageHook {
 	return c.MessageHook
 }
 
+// GetAccount 在 server 模式下没有"激活账号"的概念（启动时直接传入 data_dir/data_key），
+// 返回空串。webhook 校验时会把空 owner_wxid 当作"旧版兼容"放行。
+func (c *ServerConfig) GetAccount() string {
+	return ""
+}
+
 func (c *ServerConfig) GetSaveDecryptedMedia() bool {
 	return c.SaveDecryptedMedia
 }
