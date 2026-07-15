@@ -45,7 +45,7 @@ type MessageV4 struct {
 	CompressContent []byte `json:"-"`                // 旧格式 <msg><atuserlist><item>...
 	Source          []byte `json:"-"`                // WeChat 4.x <msgsource><atuserlist>...，可能 zstd 压缩
 	PackedInfoData  []byte `json:"packed_info_data"` // 额外数据，类似 proto，格式与 v3 有差异
-	Status          int    `json:"status"`           // 消息状态，2 是已发送，4 是已接收，可以用于判断 IsSender（FIXME 不准, 需要判断 UserName）
+	Status          int64  `json:"status"`           // 消息状态，2 是已发送，4 是已接收，可以用于判断 IsSender（FIXME 不准, 需要判断 UserName）
 }
 
 func (m *MessageV4) Wrap(talker string) *Message {

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -72,14 +71,6 @@ func toInt64(v interface{}) int64 {
 	default:
 		return 0
 	}
-}
-
-func toInt(v interface{}) int {
-	n := toInt64(v)
-	if n < int64(math.MinInt) || n > int64(math.MaxInt) {
-		return 0
-	}
-	return int(n)
 }
 
 func toString(v interface{}) string {
@@ -169,7 +160,7 @@ func (ds *DataSource) GetMessages(ctx context.Context, startTime, endTime time.T
 				CompressContent: toBytes(row["compress_content"]),
 				Source:          toBytes(row["source"]),
 				PackedInfoData:  toBytes(row["packed_info_data"]),
-				Status:          toInt(row["status"]),
+				Status:          toInt64(row["status"]),
 			}
 			msg := msgV4.Wrap(tk)
 			if msg == nil {
