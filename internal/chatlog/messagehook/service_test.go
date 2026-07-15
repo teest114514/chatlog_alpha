@@ -3,9 +3,21 @@ package messagehook
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/sjzar/chatlog/internal/chatlog/conf"
+	"github.com/sjzar/chatlog/internal/model"
 )
+
+type eventTestConfig struct{ account string }
+
+func (c eventTestConfig) GetMessageHook() *conf.MessageHook       { return nil }
+func (c eventTestConfig) GetDataDir() string                      { return "" }
+func (c eventTestConfig) GetHTTPAddr() string                     { return "" }
+func (c eventTestConfig) GetSemanticConfig() *conf.SemanticConfig { return nil }
+func (c eventTestConfig) GetAccount() string                      { return c.account }
 
 func TestSessionInForwardWhitelistMatchesIDOrDisplayName(t *testing.T) {
 	contacts := map[string]struct{}{"wxid_friend": {}}
@@ -51,5 +63,25 @@ func TestFailedPostDeliveryIsRetried(t *testing.T) {
 	}
 	if len(service.pendingPost) != 0 {
 		t.Fatalf("successful retry was retained: %#v", service.pendingPost)
+	}
+}
+
+func TestBuildEventIncludesOwnerAndAtUserList(t *testing.T) {
+	service := &Service{conf: eventTestConfig{account: "wxid_owner_abcd"}}
+	trigger := &model.Message{
+		Seq:        42,
+		Time:       time.Unix(123, 0),
+		Talker:     "room@chatroom",
+		Sender:     "sender",
+		Type:       1,
+		AtUserList: []string{"wxid_a", "wxid_b"},
+	}
+	cfg := &conf.MessageHook{BeforeCount: 0, AfterCount: 0}
+	event := service.buildEvent(trigger, "keyword", "rule", "hello", "hello", cfg)
+	if event.OwnerWxid != "wxid_owner" {
+		t.Fatalf("OwnerWxid = %q, want wxid_owner", event.OwnerWxid)
+	}
+	if !reflect.DeepEqual(event.AtUserList, trigger.AtUserList) {
+		t.Fatalf("AtUserList = %#v, want %#v", event.AtUserList, trigger.AtUserList)
 	}
 }

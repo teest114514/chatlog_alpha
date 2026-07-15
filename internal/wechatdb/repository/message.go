@@ -57,6 +57,7 @@ func (r *Repository) enrichMessage(msg *model.Message) {
 	// 处理群聊消息
 	if msg.IsChatRoom {
 		// 补充群聊名称
+		r.cacheMu.RLock()
 		if chatRoom, ok := r.chatRoomCache[msg.Talker]; ok {
 			msg.TalkerName = chatRoom.DisplayName()
 
@@ -65,6 +66,7 @@ func (r *Repository) enrichMessage(msg *model.Message) {
 				msg.SenderName = displayName
 			}
 		}
+		r.cacheMu.RUnlock()
 	}
 
 	// 如果不是自己发送的消息且还没有显示名称，尝试补充发送者信息

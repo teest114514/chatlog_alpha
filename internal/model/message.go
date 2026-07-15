@@ -104,20 +104,21 @@ const (
 )
 
 type Message struct {
-	Version    string                 `json:"-"`                  // 消息版本，内部判断
-	Seq        int64                  `json:"seq"`                // 唯一序列号 (timestamp * 1000000 + local_id)
-	ID         int64                  `json:"id"`                 // 冗余 ID 字段，确保某些客户端能正确解析
-	Time       time.Time              `json:"time"`               // 消息创建时间，10位时间戳
-	Talker     string                 `json:"talker"`             // 聊天对象，微信 ID or 群 ID
-	TalkerName string                 `json:"talkerName"`         // 聊天对象名称
-	IsChatRoom bool                   `json:"isChatRoom"`         // 是否为群聊消息
-	Sender     string                 `json:"sender"`             // 发送人，微信 ID
-	SenderName string                 `json:"senderName"`         // 发送人名称
-	IsSelf     bool                   `json:"isSelf"`             // 是否为自己发送的消息
-	Type       int64                  `json:"type"`               // 消息类型
-	SubType    int64                  `json:"subType"`            // 消息子类型
-	Content    string                 `json:"content"`            // 消息内容，文字聊天内容
-	Contents   map[string]interface{} `json:"contents,omitempty"` // 消息内容，多媒体消息，采用更灵活的记录方式
+	Version    string                 `json:"-"`                      // 消息版本，内部判断
+	Seq        int64                  `json:"seq"`                    // 唯一序列号 (timestamp * 1000000 + local_id)
+	ID         int64                  `json:"id"`                     // 冗余 ID 字段，确保某些客户端能正确解析
+	Time       time.Time              `json:"time"`                   // 消息创建时间，10位时间戳
+	Talker     string                 `json:"talker"`                 // 聊天对象，微信 ID or 群 ID
+	TalkerName string                 `json:"talkerName"`             // 聊天对象名称
+	IsChatRoom bool                   `json:"isChatRoom"`             // 是否为群聊消息
+	Sender     string                 `json:"sender"`                 // 发送人，微信 ID
+	SenderName string                 `json:"senderName"`             // 发送人名称
+	IsSelf     bool                   `json:"isSelf"`                 // 是否为自己发送的消息
+	Type       int64                  `json:"type"`                   // 消息类型
+	SubType    int64                  `json:"subType"`                // 消息子类型
+	Content    string                 `json:"content"`                // 消息内容，文字聊天内容
+	Contents   map[string]interface{} `json:"contents,omitempty"`     // 消息内容，多媒体消息，采用更灵活的记录方式
+	AtUserList []string               `json:"at_user_list,omitempty"` // 群聊 @ 提及的 wxid 列表
 
 	// Debug Info
 	MediaMsg *MediaMsg `json:"mediaMsg,omitempty"` // 原始多媒体消息，XML 格式

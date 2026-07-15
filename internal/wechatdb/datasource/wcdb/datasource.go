@@ -150,15 +150,17 @@ func (ds *DataSource) GetMessages(ctx context.Context, startTime, endTime time.T
 
 		for _, row := range rows {
 			msgV4 := model.MessageV4{
-				LocalID:        toInt64(row["local_id"]),
-				SortSeq:        toInt64(row["sort_seq"]),
-				ServerID:       toInt64(row["server_id"]),
-				LocalType:      toInt64(row["local_type"]),
-				UserName:       toString(row["user_name"]),
-				CreateTime:     toInt64(row["create_time"]),
-				MessageContent: toBytes(row["message_content"]),
-				PackedInfoData: toBytes(row["packed_info_data"]),
-				Status:         int(toInt64(row["status"])),
+				LocalID:         toInt64(row["local_id"]),
+				SortSeq:         toInt64(row["sort_seq"]),
+				ServerID:        toInt64(row["server_id"]),
+				LocalType:       toInt64(row["local_type"]),
+				UserName:        toString(row["user_name"]),
+				CreateTime:      toInt64(row["create_time"]),
+				MessageContent:  toBytes(row["message_content"]),
+				CompressContent: toBytes(row["compress_content"]),
+				Source:          toBytes(row["source"]),
+				PackedInfoData:  toBytes(row["packed_info_data"]),
+				Status:          int(toInt64(row["status"])),
 			}
 			msg := msgV4.Wrap(tk)
 			if msg == nil {

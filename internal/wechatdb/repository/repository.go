@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog/log"
@@ -11,9 +13,16 @@ import (
 	"github.com/sjzar/chatlog/internal/wechatdb/datasource"
 )
 
+const defaultCacheRefreshInterval = 30 * time.Second
+
 // Repository 实现了 repository.Repository 接口
 type Repository struct {
 	ds datasource.DataSource
+
+	// cacheMu protects publication and reads of every cache snapshot below.
+	// Refreshes build replacement maps off-lock, then swap the complete snapshot
+	// while holding the write lock.
+	cacheMu sync.RWMutex
 
 	// Cache for contact
 	contactCache      map[string]*model.Contact
@@ -39,10 +48,19 @@ type Repository struct {
 
 	// Cache for openim corp_id → corp_name（来自 contact.db.openim_wording 表）
 	openimWordingCache map[string]string
+
+	refreshCancel context.CancelFunc
+	refreshWG     sync.WaitGroup
+	closeOnce     sync.Once
+	closeErr      error
 }
 
 // New 创建一个新的 Repository
 func New(ds datasource.DataSource) (*Repository, error) {
+	return newRepository(ds, defaultCacheRefreshInterval)
+}
+
+func newRepository(ds datasource.DataSource, refreshInterval time.Duration) (*Repository, error) {
 	r := &Repository{
 		ds:                 ds,
 		contactCache:       make(map[string]*model.Contact),
@@ -71,7 +89,42 @@ func New(ds datasource.DataSource) (*Repository, error) {
 	ds.SetCallback("contact", r.contactCallback)
 	ds.SetCallback("chatroom", r.chatroomCallback)
 
+	refreshCtx, cancel := context.WithCancel(context.Background())
+	r.refreshCancel = cancel
+	r.refreshWG.Add(1)
+	go r.runRefreshLoop(refreshCtx, refreshInterval)
+
 	return r, nil
+}
+
+func (r *Repository) runRefreshLoop(ctx context.Context, interval time.Duration) {
+	defer r.refreshWG.Done()
+	if interval <= 0 {
+		<-ctx.Done()
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.refreshCaches(ctx)
+		}
+	}
+}
+
+func (r *Repository) refreshCaches(ctx context.Context) {
+	if err := r.initOpenimWordingCache(ctx); err != nil {
+		log.Warn().Err(err).Msg("repository: periodic openim wording cache refresh failed; keeping previous snapshot")
+	}
+	if err := r.initContactCache(ctx); err != nil {
+		log.Warn().Err(err).Msg("repository: periodic contact cache refresh failed; keeping previous snapshot")
+	}
+	if err := r.initChatRoomCache(ctx); err != nil {
+		log.Warn().Err(err).Msg("repository: periodic chatroom cache refresh failed; keeping previous snapshot")
+	}
 }
 
 // initCache 初始化缓存
@@ -79,7 +132,7 @@ func (r *Repository) initCache(ctx context.Context) error {
 	// openim_wording 必须先于 contact —— initContactCache 里给 @openim 联系人
 	// 注入 CorpName 时要查这张表。顺序反了会导致首次启动企业名为空。
 	if err := r.initOpenimWordingCache(ctx); err != nil {
-		return err
+		log.Warn().Err(err).Msg("Failed to load openim_wording (continuing with empty cache)")
 	}
 
 	// 初始化联系人缓存
@@ -101,8 +154,7 @@ func (r *Repository) initCache(ctx context.Context) error {
 func (r *Repository) initOpenimWordingCache(ctx context.Context) error {
 	wordings, err := r.ds.GetOpenimWordings(ctx)
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to load openim_wording (continuing with empty cache)")
-		wordings = nil
+		return err
 	}
 	m := make(map[string]string, len(wordings))
 	for _, w := range wordings {
@@ -114,7 +166,9 @@ func (r *Repository) initOpenimWordingCache(ctx context.Context) error {
 			m[w.WordingID] = w.Wording
 		}
 	}
+	r.cacheMu.Lock()
 	r.openimWordingCache = m
+	r.cacheMu.Unlock()
 	return nil
 }
 
@@ -124,31 +178,42 @@ func (r *Repository) LookupOpenimCorpName(corpID string) (string, bool) {
 	if corpID == "" {
 		return "", false
 	}
+	r.cacheMu.RLock()
 	name, ok := r.openimWordingCache[corpID]
+	r.cacheMu.RUnlock()
 	return name, ok
 }
 
 func (r *Repository) contactCallback(event fsnotify.Event) error {
-	if !event.Op.Has(fsnotify.Create) {
+	if !event.Op.Has(fsnotify.Create) && !event.Op.Has(fsnotify.Write) && !event.Op.Has(fsnotify.Rename) {
 		return nil
 	}
 	if err := r.initContactCache(context.Background()); err != nil {
 		log.Err(err).Msgf("Failed to reinitialize contact cache: %s", event.Name)
+		return err
 	}
 	return nil
 }
 
 func (r *Repository) chatroomCallback(event fsnotify.Event) error {
-	if !event.Op.Has(fsnotify.Create) {
+	if !event.Op.Has(fsnotify.Create) && !event.Op.Has(fsnotify.Write) && !event.Op.Has(fsnotify.Rename) {
 		return nil
 	}
 	if err := r.initChatRoomCache(context.Background()); err != nil {
-		log.Err(err).Msgf("Failed to reinitialize contact cache: %s", event.Name)
+		log.Err(err).Msgf("Failed to reinitialize chatroom cache: %s", event.Name)
+		return err
 	}
 	return nil
 }
 
 // Close 实现 Repository 接口的 Close 方法
 func (r *Repository) Close() error {
-	return r.ds.Close()
+	r.closeOnce.Do(func() {
+		if r.refreshCancel != nil {
+			r.refreshCancel()
+		}
+		r.refreshWG.Wait()
+		r.closeErr = r.ds.Close()
+	})
+	return r.closeErr
 }

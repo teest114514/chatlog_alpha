@@ -5,8 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rs/zerolog/log"
-
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
 )
@@ -21,16 +19,28 @@ func (r *Repository) initChatRoomCache(ctx context.Context) error {
 	chatRoomRemark := make([]string, 0)
 	chatRoomNickName := make([]string, 0)
 
-	// 加载所有群聊到缓存
-	// 暂时忽略获取不到群聊的错误
+	// Build a complete replacement off-lock. Query failures preserve the last
+	// known-good snapshot instead of publishing an empty cache.
 	chatRooms, err := r.ds.GetChatRooms(ctx, "", 0, 0)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to load chat rooms")
+		return err
 	}
+	r.cacheMu.RLock()
+	contactCache := r.contactCache
+	chatRoomInContact := r.chatRoomInContact
+	r.cacheMu.RUnlock()
 
 	for _, chatRoom := range chatRooms {
+		if chatRoom == nil {
+			continue
+		}
+		chatRoomCopy := *chatRoom
+		chatRoom = &chatRoomCopy
 		// 补充群聊信息（从联系人中获取 Remark 和 NickName）
-		r.enrichChatRoom(chatRoom)
+		if contact, ok := contactCache[chatRoom.Name]; ok {
+			chatRoom.Remark = contact.Remark
+			chatRoom.NickName = contact.NickName
+		}
 		chatRoomMap[chatRoom.Name] = chatRoom
 		chatRoomList = append(chatRoomList, chatRoom.Name)
 		if chatRoom.Remark != "" {
@@ -53,7 +63,7 @@ func (r *Repository) initChatRoomCache(ctx context.Context) error {
 		}
 	}
 
-	for _, contact := range r.chatRoomInContact {
+	for _, contact := range chatRoomInContact {
 		if _, ok := chatRoomMap[contact.UserName]; !ok {
 			chatRoom := &model.ChatRoom{
 				Name:     contact.UserName,
@@ -86,12 +96,14 @@ func (r *Repository) initChatRoomCache(ctx context.Context) error {
 	sort.Strings(chatRoomRemark)
 	sort.Strings(chatRoomNickName)
 
+	r.cacheMu.Lock()
 	r.chatRoomCache = chatRoomMap
 	r.remarkToChatRoom = remarkToChatRoom
 	r.nickNameToChatRoom = nickNameToChatRoom
 	r.chatRoomList = chatRoomList
 	r.chatRoomRemark = chatRoomRemark
 	r.chatRoomNickName = chatRoomNickName
+	r.cacheMu.Unlock()
 
 	return nil
 }
@@ -116,6 +128,8 @@ func (r *Repository) GetChatRooms(ctx context.Context, key string, limit, offset
 			return ret[offset:end], nil
 		}
 	} else {
+		r.cacheMu.RLock()
+		defer r.cacheMu.RUnlock()
 		list := r.chatRoomList
 		if limit > 0 {
 			end := offset + limit
@@ -145,6 +159,8 @@ func (r *Repository) GetChatRoom(ctx context.Context, key string) (*model.ChatRo
 
 // enrichChatRoom 从联系人信息中补充群聊信息
 func (r *Repository) enrichChatRoom(chatRoom *model.ChatRoom) {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	if contact, ok := r.contactCache[chatRoom.Name]; ok {
 		chatRoom.Remark = contact.Remark
 		chatRoom.NickName = contact.NickName
@@ -152,6 +168,8 @@ func (r *Repository) enrichChatRoom(chatRoom *model.ChatRoom) {
 }
 
 func (r *Repository) findChatRoom(key string) *model.ChatRoom {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	if chatRoom, ok := r.chatRoomCache[key]; ok {
 		return chatRoom
 	}
@@ -178,6 +196,8 @@ func (r *Repository) findChatRoom(key string) *model.ChatRoom {
 }
 
 func (r *Repository) findChatRooms(key string) []*model.ChatRoom {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	ret := make([]*model.ChatRoom, 0)
 	distinct := make(map[string]bool)
 	if chatRoom, ok := r.chatRoomCache[key]; ok {

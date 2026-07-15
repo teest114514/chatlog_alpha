@@ -5,8 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rs/zerolog/log"
-
 	"github.com/sjzar/chatlog/internal/errors"
 	"github.com/sjzar/chatlog/internal/model"
 )
@@ -25,17 +23,25 @@ func (r *Repository) initContactCache(ctx context.Context) error {
 	remarkList := make([]string, 0)
 	nickNameList := make([]string, 0)
 
-	// 加载所有联系人到缓存
-	// 暂时忽略获取不到联系人的错误
+	// Build a complete replacement off-lock. A failed query must not publish an
+	// empty snapshot over the last known-good cache.
 	contacts, err := r.ds.GetContacts(ctx, "", 0, 0)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to load contacts")
+		return err
 	}
+	r.cacheMu.RLock()
+	openimWordingCache := r.openimWordingCache
+	r.cacheMu.RUnlock()
 
 	for _, contact := range contacts {
+		if contact == nil {
+			continue
+		}
+		contactCopy := *contact
+		contact = &contactCopy
 		// 给企业微信联系人补企业名。DataSource 已从 extra_buffer 抽出 CorpID。
 		if contact.CorpID != "" && contact.CorpName == "" {
-			if name, ok := r.openimWordingCache[contact.CorpID]; ok {
+			if name, ok := openimWordingCache[contact.CorpID]; ok {
 				contact.CorpName = name
 			}
 		}
@@ -86,6 +92,7 @@ func (r *Repository) initContactCache(ctx context.Context) error {
 	sort.Strings(remarkList)
 	sort.Strings(nickNameList)
 
+	r.cacheMu.Lock()
 	r.contactCache = contactMap
 	r.aliasToContact = aliasMap
 	r.remarkToContact = remarkMap
@@ -96,6 +103,7 @@ func (r *Repository) initContactCache(ctx context.Context) error {
 	r.aliasList = aliasList
 	r.remarkList = remarkList
 	r.nickNameList = nickNameList
+	r.cacheMu.Unlock()
 	return nil
 }
 
@@ -126,6 +134,8 @@ func (r *Repository) GetContacts(ctx context.Context, key string, limit, offset 
 			return ret[offset:end], nil
 		}
 	} else {
+		r.cacheMu.RLock()
+		defer r.cacheMu.RUnlock()
 		list := r.contactList
 		if limit > 0 {
 			end := offset + limit
@@ -145,6 +155,8 @@ func (r *Repository) GetContacts(ctx context.Context, key string, limit, offset 
 }
 
 func (r *Repository) findContact(key string) *model.Contact {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	if contact, ok := r.contactCache[key]; ok {
 		return contact
 	}
@@ -178,6 +190,8 @@ func (r *Repository) findContact(key string) *model.Contact {
 }
 
 func (r *Repository) findContacts(key string) []*model.Contact {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	ret := make([]*model.Contact, 0)
 	distinct := make(map[string]bool)
 	if contact, ok := r.contactCache[key]; ok {
@@ -245,6 +259,8 @@ func (r *Repository) findContacts(key string) []*model.Contact {
 
 // getFullContact 获取联系人信息，包括群聊成员
 func (r *Repository) getFullContact(userName string) *model.Contact {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	// 先查找联系人缓存
 	if contact, ok := r.contactCache[userName]; ok {
 		return contact

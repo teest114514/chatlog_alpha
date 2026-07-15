@@ -84,6 +84,7 @@ type Event struct {
 	// OwnerWxid 是当前 chatlog 监听的微信账号 wxid（已 strip local suffix），
 	// 让 webhook 接收方能区分消息属于哪个账号。
 	OwnerWxid  string           `json:"owner_wxid,omitempty"`
+	AtUserList []string         `json:"at_user_list,omitempty"`
 	Context    []ContextMessage `json:"context"`
 	Deliveries []DeliveryResult `json:"deliveries,omitempty"`
 }
@@ -265,6 +266,7 @@ func (s *Service) buildEvent(trigger *model.Message, ruleType, ruleLabel, keywor
 		TriggerTime:    trigger.Time.Format("2006-01-02 15:04:05"),
 		TriggerContent: triggerContent,
 		OwnerWxid:      stripChatlogLocalSuffix(s.conf.GetAccount()),
+		AtUserList:     trigger.AtUserList,
 	}
 	evt.Context = s.loadContext(trigger, beforeCount, afterCount)
 	return evt
