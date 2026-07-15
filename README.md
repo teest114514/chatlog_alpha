@@ -1,7 +1,7 @@
 # Chatlog Alpha
 
 [![Release](https://github.com/teest114514/chatlog_alpha/actions/workflows/release.yml/badge.svg)](https://github.com/teest114514/chatlog_alpha/actions/workflows/release.yml)
-[![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go)](https://go.dev/)
 [![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](#平台兼容性)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
@@ -99,7 +99,7 @@ test/wechat_sender/skills/wechat-macos-hook-discovery/
 | [@marswjf](https://github.com/marswjf) | [#59](https://github.com/teest114514/chatlog_alpha/pull/59)、[#60](https://github.com/teest114514/chatlog_alpha/pull/60) | 整合 Windows 主进程精确识别与 PID 缓存、Action CLI、媒体代理字段、RecordInfo 嵌套资源、Rec 媒体路径和历史账号回填。 |
 | [@think2011](https://github.com/think2011) | [#54](https://github.com/teest114514/chatlog_alpha/pull/54) | 对旧版 webhook、WAL 自动更新、文件锁和时间范围问题进行了系统验证；本轮适配了 WAL 无提交时的全量回退和临时文件锁处理，旧 webhook/时间范围路径已由 messagehook + 直读 WCDB 架构替换。 |
 | [@jingmian](https://github.com/jingmian) | [#18](https://github.com/teest114514/chatlog_alpha/pull/18) | 补充图片密钥扫描的实测提示：需要触发样本时优先打开朋友圈图片。 |
-| [Dependabot](https://github.com/apps/dependabot) | [#23](https://github.com/teest114514/chatlog_alpha/pull/23)、[#75](https://github.com/teest114514/chatlog_alpha/pull/75) | 依赖更新建议已复核：吸收 Go 1.24 兼容的 jsonparser `v1.1.2` 及间接补丁更新；`x/crypto v0.48.0`、Excelize `v2.10.0` 与 `x/net v0.49.0` 保持已验证组合，避免整组升级提高最低 Go 版本并引入 `x/net v0.50.0` 的已知问题。 |
+| [Dependabot](https://github.com/apps/dependabot) | [#23](https://github.com/teest114514/chatlog_alpha/pull/23)、[#75](https://github.com/teest114514/chatlog_alpha/pull/75)、[#80](https://github.com/teest114514/chatlog_alpha/pull/80) | 依赖更新建议已复核：吸收 jsonparser `v1.1.2` 等兼容补丁；在 Go 1.26 发布、Go 1.24 退出支持后，将最低版本提升到 Go 1.25，并更新 Excelize `v2.11.0`、`x/crypto v0.53.0`、`x/net v0.56.0` 及相关安全修复。 |
 
 Chatlog Alpha 是面向微信 4.x 的本地聊天数据读取、查询与分析工具，提供：
 
@@ -315,7 +315,7 @@ Windows 当前通过读取微信进程内存提取数据库和图片密钥：
 
 ### 环境要求
 
-- Go `1.24` 或更高版本
+- Go `1.25` 或更高版本
 - Git
 - 支持 CGO 的 C 编译器
 - macOS 数据库提钥额外需要 Python 3 与 `frida-tools`
