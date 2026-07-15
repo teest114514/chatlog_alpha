@@ -86,7 +86,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.25.x"
+          go-version: "1.25"
+          check-latest: true
 
       - name: Run Tests
         shell: bash
@@ -176,7 +177,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.25.x"
+          go-version: "1.25"
+          check-latest: true
 
       - name: Setup MSYS2 (for CGO amd64)
         uses: msys2/setup-msys2@v2
