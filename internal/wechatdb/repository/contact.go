@@ -33,6 +33,12 @@ func (r *Repository) initContactCache(ctx context.Context) error {
 	}
 
 	for _, contact := range contacts {
+		// 给企业微信联系人补企业名。DataSource 已从 extra_buffer 抽出 CorpID。
+		if contact.CorpID != "" && contact.CorpName == "" {
+			if name, ok := r.openimWordingCache[contact.CorpID]; ok {
+				contact.CorpName = name
+			}
+		}
 		contactMap[contact.UserName] = contact
 		contactList = append(contactList, contact.UserName)
 

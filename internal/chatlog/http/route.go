@@ -131,6 +131,7 @@ func (s *Service) initAPIRouter() {
 		api.GET("/sns_search", s.handleSNSSearchCompat)
 		api.GET("/sns/media/proxy", s.handleSNSMediaProxy)
 		api.GET("/contacts", s.handleContactsCompat)
+		api.GET("/openim/:wxid/corp", s.handleOpenimCorp)
 		api.GET("/chatrooms", s.handleChatRoomsCompat)
 		api.GET("/db", s.handleGetDBs)
 		api.GET("/db/search", s.handleSearchAllDBs)
@@ -3160,6 +3161,34 @@ func normalizeOutputFormat(raw string) (string, error) {
 		return "json", nil
 	}
 	return "", errors.InvalidArg("format")
+}
+
+// handleOpenimCorp 给定 @openim 用户的 wxid，返回其企业名 + 企业 ID。
+// GET /api/v1/openim/{wxid}/corp
+// wxid 不存在 / 不是 openim / 没有企业信息一律返回 200 + 空字段，不报错。
+func (s *Service) handleOpenimCorp(c *gin.Context) {
+	wxid := strings.TrimSpace(c.Param("wxid"))
+	if wxid == "" {
+		errors.Err(c, errors.InvalidArg("wxid"))
+		return
+	}
+	resp := gin.H{
+		"wxid":      wxid,
+		"corp_id":   "",
+		"corp_name": "",
+	}
+	if !strings.HasSuffix(wxid, "@openim") {
+		writeByFormat(c, resp, c.Query("format"))
+		return
+	}
+	contact, err := s.db.GetContact(wxid)
+	if err != nil || contact == nil {
+		writeByFormat(c, resp, c.Query("format"))
+		return
+	}
+	resp["corp_id"] = contact.CorpID
+	resp["corp_name"] = contact.CorpName
+	writeByFormat(c, resp, c.Query("format"))
 }
 
 func writeByFormat(c *gin.Context, payload interface{}, rawFormat string) {

@@ -253,18 +253,22 @@ func (ds *DataSource) GetMessage(ctx context.Context, talker string, seq int64) 
 
 func (ds *DataSource) GetContacts(ctx context.Context, key string, limit, offset int) ([]*model.Contact, error) {
 	_ = ctx
-	rows, err := ds.client.Query("contact", "", `SELECT username, local_type, alias, remark, nick_name FROM contact ORDER BY username`)
+	// extra_buffer 必须读出来：ContactV4.Wrap 用它解析 @openim 用户的 corp_id。
+	// 缺这一列，所有企业微信联系人 corp_id 都是空，下游也就拿不到企业名。
+	rows, err := ds.client.Query("contact", "", `SELECT username, local_type, alias, remark, nick_name, COALESCE(description, '') AS description, extra_buffer FROM contact ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]*model.Contact, 0, len(rows))
 	for _, row := range rows {
 		c := (&model.ContactV4{
-			UserName:  toString(row["username"]),
-			LocalType: int(toInt64(row["local_type"])),
-			Alias:     toString(row["alias"]),
-			Remark:    toString(row["remark"]),
-			NickName:  toString(row["nick_name"]),
+			UserName:    toString(row["username"]),
+			LocalType:   int(toInt64(row["local_type"])),
+			Alias:       toString(row["alias"]),
+			Remark:      toString(row["remark"]),
+			NickName:    toString(row["nick_name"]),
+			Description: toString(row["description"]),
+			ExtraBuffer: toBytes(row["extra_buffer"]),
 		}).Wrap()
 		if key != "" && !(c.UserName == key || c.Alias == key || c.Remark == key || c.NickName == key) {
 			continue
@@ -281,6 +285,28 @@ func (ds *DataSource) GetContacts(ctx context.Context, key string, limit, offset
 		items = items[:limit]
 	}
 	return items, nil
+}
+
+// GetOpenimWordings 读取 contact.db 的 openim_wording 表，返回 corp_id → 企业名映射。
+func (ds *DataSource) GetOpenimWordings(ctx context.Context) ([]*model.OpenimWording, error) {
+	_ = ctx
+	rows, err := ds.client.Query("contact", "",
+		`SELECT lang_id, app_id, wording_id, wording, COALESCE(pinyin,'') AS pinyin, COALESCE(quan_pin,'') AS quan_pin FROM openim_wording`)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*model.OpenimWording, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, &model.OpenimWording{
+			LangID:    int(toInt64(row["lang_id"])),
+			AppID:     toString(row["app_id"]),
+			WordingID: toString(row["wording_id"]),
+			Wording:   toString(row["wording"]),
+			Pinyin:    toString(row["pinyin"]),
+			QuanPin:   toString(row["quan_pin"]),
+		})
+	}
+	return out, nil
 }
 
 func (ds *DataSource) GetChatRooms(ctx context.Context, key string, limit, offset int) ([]*model.ChatRoom, error) {
