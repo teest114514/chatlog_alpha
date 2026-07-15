@@ -94,6 +94,7 @@ test/wechat_sender/skills/wechat-macos-hook-discovery/
 
 | 贡献者 | Pull Request | 本轮吸收与反馈 |
 |---|---|---|
+| [@onewilk](https://github.com/onewilk) | [#81](https://github.com/teest114514/chatlog_alpha/pull/81)、[#82](https://github.com/teest114514/chatlog_alpha/pull/82)、[#83](https://github.com/teest114514/chatlog_alpha/pull/83)、[#84](https://github.com/teest114514/chatlog_alpha/pull/84)、[#85](https://github.com/teest114514/chatlog_alpha/pull/85) | 基于微信 4.1.x 实测补充 OpenIM 企业归属、webhook `owner_wxid` 和 `Name2Id` 群聊回填，相关改进已合并；同时确认联系人/群聊缓存失效与群聊 @ 列表缺失问题，缓存失败保留旧快照、关闭同步和 `source` 优先级仍待完善。 |
 | [@TnzGit](https://github.com/TnzGit) | [#68](https://github.com/teest114514/chatlog_alpha/pull/68) | 修复大批量 Embedding 成功响应被 2MB 截断的问题，并保留大响应回归测试。 |
 | [@ouyadi](https://github.com/ouyadi) | [#64](https://github.com/teest114514/chatlog_alpha/pull/64)、[#65](https://github.com/teest114514/chatlog_alpha/pull/65) | 整合 MCP 五分钟超时与请求取消、消息查询降采样、`wx_semantic_search`、索引会话白名单、消息钩子白名单快路径、CORS/Host 与数据库路径边界检查。 |
 | [@marswjf](https://github.com/marswjf) | [#59](https://github.com/teest114514/chatlog_alpha/pull/59)、[#60](https://github.com/teest114514/chatlog_alpha/pull/60) | 整合 Windows 主进程精确识别与 PID 缓存、Action CLI、媒体代理字段、RecordInfo 嵌套资源、Rec 媒体路径和历史账号回填。 |
