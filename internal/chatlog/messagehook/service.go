@@ -65,6 +65,7 @@ type Event struct {
 	TriggerType    int64            `json:"trigger_type"`
 	TriggerTime    string           `json:"trigger_time"`
 	TriggerContent string           `json:"trigger_content"`
+	AtUserList     []string         `json:"at_user_list,omitempty"`
 	Context        []ContextMessage `json:"context"`
 	Deliveries     []DeliveryResult `json:"deliveries,omitempty"`
 }
@@ -245,6 +246,7 @@ func (s *Service) buildEvent(trigger *model.Message, ruleType, ruleLabel, keywor
 		TriggerType:    trigger.Type,
 		TriggerTime:    trigger.Time.Format("2006-01-02 15:04:05"),
 		TriggerContent: triggerContent,
+		AtUserList:     trigger.AtUserList,
 	}
 	evt.Context = s.loadContext(trigger, beforeCount, afterCount)
 	return evt

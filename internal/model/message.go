@@ -119,6 +119,8 @@ type Message struct {
 	Content    string                 `json:"content"`            // 消息内容，文字聊天内容
 	Contents   map[string]interface{} `json:"contents,omitempty"` // 消息内容，多媒体消息，采用更灵活的记录方式
 
+	AtUserList []string `json:"at_user_list,omitempty"` // @提及的 wxid 列表（从 source / compress_content 解析）
+
 	// Debug Info
 	MediaMsg *MediaMsg `json:"mediaMsg,omitempty"` // 原始多媒体消息，XML 格式
 	SysMsg   *SysMsg   `json:"sysMsg,omitempty"`   // 原始系统消息，XML 格式

@@ -417,7 +417,7 @@ func (c *Client) GetMessagesInRange(username string, since, until int64, limit, 
 		}
 
 		sql := fmt.Sprintf(`
-SELECT m.local_id, m.sort_seq, m.server_id, m.local_type, n.user_name, m.create_time, m.message_content, m.packed_info_data, m.status
+SELECT m.local_id, m.sort_seq, m.server_id, m.local_type, n.user_name, m.create_time, m.message_content, m.compress_content, m.source, m.packed_info_data, m.status
 FROM [%s] m
 LEFT JOIN Name2Id n ON m.real_sender_id = n.rowid
 %s
