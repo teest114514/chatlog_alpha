@@ -220,9 +220,17 @@ uname -m
 2. 如需手机历史记录，在手机微信中进入：`我 → 设置 → 通用 → 聊天记录迁移与备份`。
 3. 保持微信能够正常自动登录。
 
-### 2. 安装 Frida
+### 2. 检查 SIP 并安装 Frida
 
-macOS 数据库密钥仅通过 Frida 获取。请使用当前登录用户安装：
+macOS 数据库密钥仅通过 Frida 获取。当前微信发布版本在 SIP 开启时会拒绝 Frida 附加，先检查：
+
+```bash
+csrutil status
+```
+
+如果显示 `enabled`，Chatlog 会在重启微信前停止提取并给出明确提示。确认接受关闭系统保护的风险后，进入 macOS 恢复模式，在终端执行 `csrutil disable`，重启系统，再运行 `csrutil status` 确认显示 `disabled`。关闭 SIP 会降低系统安全性；提取完成后可回到恢复模式执行 `csrutil enable` 恢复。
+
+然后使用当前登录用户安装 Frida：
 
 ```bash
 python3 --version
@@ -574,13 +582,24 @@ index_chatrooms:
 
 ## 常见问题
 
+### Frida 无法附加微信进程
+
+若错误包含 `unable to access process with pid ... from the current user account`：
+
+1. 运行 `csrutil status`；如显示 `enabled`，按上方步骤关闭 SIP 并重启。
+2. 确认 Chatlog、Python/Frida 和微信均由当前桌面用户运行。
+3. 不要使用 `sudo` 启动 Chatlog、Python 或微信。
+
+Chatlog 会在检测到 SIP 已开启时直接提示；若系统状态无法预检，也会将 Frida 的 attach 权限错误转换为同一组处理指引。
+
 ### Frida 未捕获到密钥
+
+若没有出现上面的附加权限提示，该错误通常表示 Frida 已成功附加，但等待期间没有看到密钥派生调用：
 
 1. 确认 `python3 -c "import frida"` 成功。
 2. 确认微信能够自动登录。
 3. 登录后打开任意聊天窗口再重试。
 4. 增加等待时间：`chatlog key --timeout 300`。
-5. 确认没有使用 `sudo` 启动 Chatlog 或微信。
 
 ### 卡在“Frida script unloaded”附近
 

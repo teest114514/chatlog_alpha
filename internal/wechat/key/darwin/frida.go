@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,6 +30,8 @@ const (
 	fridaExitGrace      = 2 * time.Second
 	defaultWeChatExe    = "/Applications/WeChat.app/Contents/MacOS/WeChat"
 	fridaScriptFileName = "wechat_key_frida.py"
+	sipEnabledMessage   = "检测到 macOS 系统完整性保护（SIP）已开启，Frida 无法附加微信进程。此功能需要先关闭 SIP：进入 macOS 恢复模式，在终端执行 `csrutil disable`，重启后运行 `csrutil status` 确认显示 `disabled`。关闭 SIP 会降低系统安全性；提取完成后可在恢复模式执行 `csrutil enable` 恢复。"
+	sipAttachHint       = "Frida 无法附加微信进程。请确认 Chatlog、Python/Frida 和微信均由当前桌面用户运行；若仍失败，通常是 macOS 系统完整性保护（SIP）已开启。请运行 `csrutil status` 检查；如显示 `enabled`，需进入恢复模式执行 `csrutil disable` 并重启。关闭 SIP 会降低系统安全性，提取完成后可在恢复模式执行 `csrutil enable` 恢复。"
 )
 
 // FridaAvailable reports whether python3 + frida can be used for key capture.
@@ -73,6 +76,12 @@ func ExtractKeysViaFrida(ctx context.Context, dataDir string, status func(string
 	}
 	if !FridaAvailable() {
 		return "", nil, fmt.Errorf("Frida 不可用：请先执行 pip3 install frida-tools")
+	}
+	if err := checkSIPForFrida(); err != nil {
+		if status != nil {
+			status(err.Error())
+		}
+		return "", nil, err
 	}
 
 	scriptPath, cleanup, err := resolveFridaScript()
@@ -261,7 +270,7 @@ func ExtractKeysViaFrida(ctx context.Context, dataDir string, status func(string
 			if msg.Message != "" {
 				lastErr = msg.Message
 				if status != nil {
-					status("Frida: " + msg.Message)
+					status("Frida: " + fridaUserFacingError(msg.Message))
 				}
 			}
 		case "key":
@@ -300,6 +309,9 @@ func ExtractKeysViaFrida(ctx context.Context, dataDir string, status func(string
 	}
 	if capturedKey == "" {
 		if lastErr != "" {
+			if friendly := fridaUserFacingError(lastErr); friendly != lastErr {
+				return "", nil, errors.New(friendly)
+			}
 			return "", nil, fmt.Errorf("Frida 未捕获到密钥: %s", lastErr)
 		}
 		if scanErr != nil {
@@ -328,6 +340,37 @@ func ExtractKeysViaFrida(ctx context.Context, dataDir string, status func(string
 	}
 
 	return capturedKey, capturedCandidates, nil
+}
+
+// checkSIPForFrida avoids restarting WeChat when macOS has already told us
+// that task_for_pid will be blocked. Unknown/custom SIP configurations are not
+// blocked here; the attach error fallback below still provides the same hint.
+func checkSIPForFrida() error {
+	out, err := exec.Command("/usr/bin/csrutil", "status").CombinedOutput()
+	if err != nil {
+		return nil
+	}
+	if sipEnabledFromCSRUtil(string(out)) {
+		return errors.New(sipEnabledMessage)
+	}
+	return nil
+}
+
+func sipEnabledFromCSRUtil(output string) bool {
+	return strings.Contains(strings.ToLower(output), "status: enabled")
+}
+
+func fridaUserFacingError(message string) string {
+	lower := strings.ToLower(strings.TrimSpace(message))
+	attachDenied := strings.Contains(lower, "unable to access process with pid") &&
+		strings.Contains(lower, "current user account")
+	permissionDenied := strings.Contains(lower, "attach failed") &&
+		strings.Contains(lower, "permission denied")
+	fridaPermissionDenied := strings.HasPrefix(lower, "permission denied")
+	if attachDenied || permissionDenied || fridaPermissionDenied {
+		return sipAttachHint
+	}
+	return message
 }
 
 // ApplyCapturedKeyToDataDir validates a key against DBs under dataDir and writes all_keys.json.
