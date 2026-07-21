@@ -65,7 +65,7 @@
 	                        <select id="dashboard-private-select" onchange="loadDashboardStats('private')"></select>
 	                        <select id="dashboard-private-range" onchange="loadDashboardStats('private')">
 	                            <option value="all">全部时间</option>
-	                            <option value="30d">最近 30 天</option>
+	                            <option value="30d" selected>最近 30 天</option>
 	                            <option value="90d">最近 90 天</option>
 	                        </select>
 	                        <select id="dashboard-private-jump-type">
@@ -96,7 +96,7 @@
 	                        <select id="dashboard-group-select" onchange="loadDashboardStats('group')"></select>
 	                        <select id="dashboard-group-range" onchange="loadDashboardStats('group')">
 	                            <option value="all">全部时间</option>
-	                            <option value="30d">最近 30 天</option>
+	                            <option value="30d" selected>最近 30 天</option>
 	                            <option value="90d">最近 90 天</option>
 	                        </select>
 	                        <select id="dashboard-group-jump-type">
@@ -127,6 +127,7 @@
                         <button class="time-range-tab" data-range="1y">近1年</button>
                         <button class="time-range-tab" data-range="all">全部</button>
                     </div>
+                    <button id="dashboard-overview-load-all" class="btn btn-secondary btn-sm hidden" type="button" onclick="loadDashboardOverview(true)">统计全部群聊</button>
                     <span id="dashboard-overview-time" style="font-size:0.8rem;color:var(--text-secondary);"></span>
                 </div>
             </div>
@@ -164,7 +165,7 @@
             <!-- 群聊对比 -->
             <div class="section-header">
                 <h2>群聊对比</h2>
-                <span style="font-size:0.8rem;color:var(--text-secondary);">点击卡片跳转对应群聊的消息检索</span>
+                <span style="font-size:0.8rem;color:var(--text-secondary);">最多展示活跃度前 30 个群；点击卡片跳转消息检索</span>
             </div>
             <div class="comparison-grid" id="dashboard-comparison-grid">
                 <div class="analytics-empty" style="grid-column:1/-1;">加载中...</div>
@@ -184,7 +185,7 @@
             <!-- 群聊对比图表 -->
             <div class="section-header">
                 <h2>群聊对比图表</h2>
-                <span style="font-size:0.8rem;color:var(--text-secondary);">合并消息类型结构与 24 小时活跃度，避免重复查看多个相似模块</span>
+                <span style="font-size:0.8rem;color:var(--text-secondary);">展示活跃度前 30 个群的消息类型结构与 24 小时活跃度</span>
             </div>
             <div class="analytics-grid" style="margin-bottom:24px;">
                 <section class="analytics-panel">
@@ -205,12 +206,15 @@
                             <h3>消息趋势</h3>
                             <p>近期每日消息量变化</p>
                         </div>
-                        <div class="time-range-tabs" id="dashboard-trend-range">
-                            <button class="time-range-tab" data-range="1d">今天</button>
-                            <button class="time-range-tab" data-range="7d">近7天</button>
-                            <button class="time-range-tab active" data-range="30d">近1月</button>
-                            <button class="time-range-tab" data-range="90d">近季度</button>
-                            <button class="time-range-tab" data-range="1y">近1年</button>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+                            <div class="time-range-tabs" id="dashboard-trend-range">
+                                <button class="time-range-tab" data-range="1d">今天</button>
+                                <button class="time-range-tab" data-range="7d">近7天</button>
+                                <button class="time-range-tab active" data-range="30d">近1月</button>
+                                <button class="time-range-tab" data-range="90d">近季度</button>
+                                <button class="time-range-tab" data-range="1y">近1年</button>
+                            </div>
+                            <button id="dashboard-trend-load" class="btn btn-secondary btn-sm" type="button" onclick="loadDashboardDailyTrend()">加载趋势</button>
                         </div>
                     </div>
                     <div id="dashboard-daily-trend-chart" class="chart-container wide" style="height:260px;"></div>
@@ -976,7 +980,11 @@
                 </div>
                 <div class="form-group">
                     <label>限制数量 (Limit)</label>
-                    <input type="number" id="chatlog-limit" value="100">
+                    <input type="number" id="chatlog-limit" value="100" min="1" max="50000">
+                </div>
+                <div class="form-group">
+                    <label>分页偏移 (Offset)</label>
+                    <input type="number" id="chatlog-offset" value="0" min="0">
                 </div>
 	                <div class="form-group">
 	                    <label>消息类型 (可选)</label>
@@ -1053,7 +1061,9 @@
                 </div>
             </div>
             <div class="actions">
+                <button class="btn btn-secondary" type="button" onclick="changeChatlogPage(-1)">上一页</button>
                 <button class="btn btn-primary" onclick="queryAPI('chatlog')">查询 / 导出</button>
+                <button class="btn btn-secondary" type="button" onclick="changeChatlogPage(1)">下一页</button>
             </div>
             <div id="chatlog-result" class="result-area hidden"></div>
         </div>
@@ -1170,6 +1180,21 @@
         let dashboardTrendCachePromise = null;
         let dashboardSummaryCacheKey = '';
         let dashboardSummaryCachePromise = null;
+        let dashboardAnalyticsPromise = null;
+        let dashboardAnalyticsLoaded = false;
+        let dashboardOverviewController = null;
+        let dashboardOverviewRunID = 0;
+        const dashboardDetailControllers = { private: null, group: null };
+        const initializedTabs = new Set();
+        const tabInitializationPromises = new Map();
+        const dashboardStatsCache = new Map();
+        const activeQueryControllers = new Map();
+        const resultDownloadURLs = new Map();
+        const dashboardAutomaticGroupLimit = 20;
+        const dashboardRenderedGroupLimit = 30;
+        const dashboardStatsConcurrency = 4;
+        const maxInlineResultBytes = 2 * 1024 * 1024;
+        const maxPrettyJSONBytes = 512 * 1024;
         const dashboardCharts = {};
         const dashboardMsgTypeMap = {
             text: '1',
@@ -1184,18 +1209,48 @@
             system: '10000'
         };
 
+        function initializeTab(tabId) {
+            if (!tabId || initializedTabs.has(tabId)) return Promise.resolve();
+            if (tabInitializationPromises.has(tabId)) return tabInitializationPromises.get(tabId);
+
+            const task = (async () => {
+                if (tabId === 'dashboard') {
+                    await Promise.all([loadDBList(), loadDashboardAnalytics()]);
+                } else if (tabId === 'hook') {
+                    syncHookFormState();
+                    await loadHookPanel();
+                    connectHookStream();
+                } else if (tabId === 'experimental') {
+                    bindSemanticComposer();
+                    await Promise.all([loadSemanticConfigAndStatus(), loadSemanticSourceSessions()]);
+                    await refreshSemanticIndexStatus(true);
+                } else if (tabId === 'temporal-graph') {
+                    await loadGraphStatus();
+                    await refreshGraphRealtime(true);
+                } else if (tabId === 'send-debug' && typeof window.sendDebugInitialize === 'function') {
+                    await window.sendDebugInitialize();
+                }
+                initializedTabs.add(tabId);
+            })().catch((error) => {
+                console.error(`initializeTab(${tabId}) failed:`, error);
+                return null;
+            }).finally(() => {
+                tabInitializationPromises.delete(tabId);
+            });
+            tabInitializationPromises.set(tabId, task);
+            return task;
+        }
+
         // Init
         document.addEventListener('DOMContentLoaded', () => {
             setSemanticActionEnabled(false);
-            loadDBList();
-            loadDashboardAnalytics();
-            loadHookPanel();
-            loadSemanticConfigAndStatus();
-            loadSemanticSourceSessions();
-            loadGraphStatus();
-            bindSemanticComposer();
-            connectHookStream();
-            syncHookFormState();
+            // console.js may restore another saved tab in its DOMContentLoaded
+            // handler. Defer the first load so only the tab that remains active
+            // performs network or database work.
+            window.setTimeout(() => {
+                const activeTab = document.querySelector('.tab-content.active');
+                initializeTab(activeTab ? activeTab.id : 'dashboard');
+            }, 0);
             hookStatusTimer = setInterval(() => {
                 const hookTab = document.getElementById('hook');
                 if (hookTab && hookTab.classList.contains('active')) {
@@ -1218,6 +1273,13 @@
             });
         });
 
+        window.addEventListener('beforeunload', () => {
+            if (dashboardOverviewController) dashboardOverviewController.abort();
+            Object.values(dashboardDetailControllers).forEach(controller => controller && controller.abort());
+            activeQueryControllers.forEach(controller => controller.abort());
+            resultDownloadURLs.forEach(item => URL.revokeObjectURL(item.url));
+        });
+
         // Tab Switching for Main Page
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -1226,23 +1288,7 @@
             const targetBtn = document.querySelector(`.tab-btn[onclick*="switchTab('${tabId}')"]`);
             if (targetBtn) targetBtn.classList.add('active');
             document.getElementById(tabId).classList.add('active');
-            
-            if(tabId === 'dashboard') {
-                loadDBList();
-                loadDashboardAnalytics();
-            }
-            if (tabId === 'hook') {
-                loadHookPanel();
-                connectHookStream();
-            }
-            if (tabId === 'experimental') {
-                loadSemanticConfigAndStatus();
-                loadSemanticSourceSessions();
-                refreshSemanticIndexStatus(true);
-            }
-            if (tabId === 'temporal-graph') {
-                refreshGraphRealtime(true);
-            }
+            initializeTab(tabId);
         }
 
         async function loadHookPanel() {
@@ -2153,9 +2199,37 @@
             });
         }
 
-        async function loadDashboardOverview() {
+        function dashboardStatsCacheKey(username, timeParam) {
+            return `${timeParam}::${username}`;
+        }
+
+        async function fetchDashboardGroupStats(group, timeParam, signal) {
+            const key = dashboardStatsCacheKey(group.username, timeParam);
+            if (dashboardStatsCache.has(key)) return dashboardStatsCache.get(key);
+            const url = `/api/v1/stats?format=json&chat=${encodeURIComponent(group.username)}&time=${encodeURIComponent(timeParam)}`;
             try {
-                await refreshDashboardIndexCoverage();
+                const res = await fetchWithTimeout(url, 20000, { signal });
+                if (!res.ok) return null;
+                const data = await res.json();
+                dashboardStatsCache.set(key, data);
+                return data;
+            } catch (error) {
+                // A stale overview run should stop immediately. A timeout for
+                // one group should only omit that group from the aggregate.
+                if (signal && signal.aborted) throw error;
+                return null;
+            }
+        }
+
+        async function loadDashboardOverview(includeAll = false) {
+            const runID = ++dashboardOverviewRunID;
+            if (dashboardOverviewController) dashboardOverviewController.abort();
+            const controller = new AbortController();
+            dashboardOverviewController = controller;
+            const status = document.getElementById('dashboard-overview-time');
+            const loadAllButton = document.getElementById('dashboard-overview-load-all');
+            try {
+                refreshDashboardIndexCoverage();
                 const groups = dashboardSessions.filter(s => s.chat_type === 'group');
                 if (!groups.length) {
                     document.getElementById('dashboard-ov-msgs').textContent = '0';
@@ -2164,38 +2238,67 @@
                     document.getElementById('dashboard-comparison-grid').innerHTML =
                         '<div class="analytics-empty" style="grid-column:1/-1;">暂无群聊统计数据</div>';
                     document.getElementById('dashboard-leaderboard-body').innerHTML = '<div class="analytics-empty">暂无发言数据</div>';
+                    if (loadAllButton) loadAllButton.classList.add('hidden');
                     return;
                 }
+
+                const targetGroups = includeAll ? groups : groups.slice(0, dashboardAutomaticGroupLimit);
+                if (loadAllButton) {
+                    loadAllButton.classList.toggle('hidden', groups.length <= dashboardAutomaticGroupLimit);
+                    loadAllButton.disabled = includeAll;
+                    loadAllButton.textContent = includeAll ? '正在统计全部群聊…' : `统计全部 ${groups.length} 个群聊`;
+                }
                 const timeParam = getStatsTimeParam();
-                const promises = groups.map(async (g) => {
-                    try {
-                        const res = await fetchWithTimeout(`/api/v1/stats?format=json&chat=${encodeURIComponent(g.username)}&time=${encodeURIComponent(timeParam)}`);
-                        if (!res.ok) return null;
-                        return await res.json();
-                    } catch (e) { return null; }
+                const results = new Array(targetGroups.length);
+                let completed = 0;
+                if (status) status.textContent = `正在统计 0/${targetGroups.length}（并发 ${dashboardStatsConcurrency}）`;
+
+                await runLimited(targetGroups.map((group, index) => ({ group, index })), dashboardStatsConcurrency, async ({ group, index }) => {
+                    results[index] = await fetchDashboardGroupStats(group, timeParam, controller.signal);
+                    completed++;
+                    if (runID === dashboardOverviewRunID && status) {
+                        status.textContent = `正在统计 ${completed}/${targetGroups.length}（并发 ${dashboardStatsConcurrency}）`;
+                    }
                 });
-                const results = await Promise.all(promises);
+                if (runID !== dashboardOverviewRunID || controller.signal.aborted) return;
+
                 const statsList = results.filter(d => d && d.total > 0);
                 dashboardGroupStats = statsList;
-
-                const totalMsgs = statsList.reduce((s, d) => s + (d.total || 0), 0);
-                const totalGroups = statsList.length;
-                const activeSenderSlots = statsList.reduce((s, d) => s + Number(d.active_senders || 0), 0);
+                const renderedStats = statsList
+                    .slice()
+                    .sort((a, b) => Number(b.total || 0) - Number(a.total || 0))
+                    .slice(0, dashboardRenderedGroupLimit);
+                const totalMsgs = statsList.reduce((sum, item) => sum + Number(item.total || 0), 0);
+                const activeSenderSlots = statsList.reduce((sum, item) => sum + Number(item.active_senders || 0), 0);
 
                 document.getElementById('dashboard-ov-msgs').textContent = totalMsgs.toLocaleString();
-                document.getElementById('dashboard-ov-groups').textContent = totalGroups;
+                document.getElementById('dashboard-ov-groups').textContent = statsList.length;
                 document.getElementById('dashboard-ov-senders').textContent = activeSenderSlots.toLocaleString();
                 document.getElementById('dashboard-ov-senders').title = '按群累加活跃发言成员；同一成员在多个群会重复计入。';
 
-                var rangeLabels = { '1d': '今天', '7d': '近7天', '30d': '近1月', '90d': '近季度', '1y': '近1年', 'all': '全部' };
-                document.getElementById('dashboard-overview-time').textContent =
-                    (rangeLabels[dashboardStatsRange] || '') + ' · 更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+                const rangeLabels = { '1d': '今天', '7d': '近7天', '30d': '近1月', '90d': '近季度', '1y': '近1年', 'all': '全部' };
+                const scope = targetGroups.length < groups.length
+                    ? `最近活跃 ${targetGroups.length}/${groups.length} 个群`
+                    : `全部 ${groups.length} 个群`;
+                if (status) {
+                    status.textContent = `${rangeLabels[dashboardStatsRange] || ''} · ${scope} · 更新于 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+                }
+                if (loadAllButton) {
+                    loadAllButton.disabled = false;
+                    loadAllButton.textContent = includeAll ? '重新统计全部群聊' : `统计全部 ${groups.length} 个群聊`;
+                }
 
-                renderDashboardComparison(statsList);
+                renderDashboardComparison(renderedStats);
                 renderDashboardLeaderboard(statsList);
-                renderDashboardCrossCharts(statsList);
-            } catch (e) {
-                console.error('loadDashboardOverview error:', e);
+                renderDashboardCrossCharts(renderedStats);
+            } catch (error) {
+                if (!error || error.name !== 'AbortError') {
+                    console.error('loadDashboardOverview error:', error);
+                    if (status) status.textContent = `统计失败：${String(error && error.message ? error.message : error)}`;
+                }
+            } finally {
+                if (runID === dashboardOverviewRunID) dashboardOverviewController = null;
+                if (loadAllButton && runID === dashboardOverviewRunID) loadAllButton.disabled = false;
             }
         }
 
@@ -2314,14 +2417,21 @@
         }
 
         function renderDashboardCrossCharts(statsList) {
-            if (!statsList.length) return;
             const typeEl = document.getElementById('dashboard-cross-type-chart');
             const hourEl = document.getElementById('dashboard-cross-hour-chart');
+            if (!statsList.length) {
+                if (dashboardCharts['cross-type']) dashboardCharts['cross-type'].clear();
+                if (dashboardCharts['cross-hour']) dashboardCharts['cross-hour'].clear();
+                if (typeEl) typeEl.innerHTML = '<div class="analytics-empty">暂无消息类型统计</div>';
+                if (hourEl) hourEl.innerHTML = '<div class="analytics-empty">暂无活跃时段统计</div>';
+                return;
+            }
 
             if (typeof echarts !== 'undefined') {
                 // Cross-group message type comparison (grouped bar chart)
                 const typeChart = getChartInstance('cross-type', typeEl);
                 if (typeChart) {
+                    typeChart.clear();
                     const allTypes = ['text', 'image', 'video', 'share', 'system'];
                     const groups = statsList.map(d => {
                         const name = (d.chat || d.username || '-');
@@ -2360,6 +2470,7 @@
                 // 24-hour multi-line chart
                 const hourChart = getChartInstance('cross-hour', hourEl);
                 if (hourChart) {
+                    hourChart.clear();
                     var groups = statsList.map(function(d) {
                         return {
                             name: (d.chat || d.username || '-'),
@@ -2398,11 +2509,17 @@
         }
 
         async function loadDashboardDailyTrend() {
+            const trendEl = document.getElementById('dashboard-daily-trend-chart');
+            const button = document.getElementById('dashboard-trend-load');
             try {
-                var trendEl = document.getElementById('dashboard-daily-trend-chart');
                 if (!trendEl) return;
-                var topics = await loadDashboardTrendData();
-                var daily = Array.isArray(topics.daily) ? topics.daily : [];
+                if (button) {
+                    button.disabled = true;
+                    button.textContent = '正在加载…';
+                }
+                trendEl.innerHTML = '<div class="analytics-empty">正在扫描所选时间窗内的消息，请稍候…</div>';
+                const topics = await loadDashboardTrendData();
+                const daily = Array.isArray(topics.daily) ? topics.daily : [];
                 if (daily.length === 0) {
                     trendEl.innerHTML = '<div class="analytics-empty">暂无每日趋势数据</div>';
                     return;
@@ -2411,8 +2528,9 @@
                     trendEl.innerHTML = renderBarList(daily.map(function(d) { return { label: d.date || '', value: d.count || 0 }; }), { fillClass: 'success' });
                     return;
                 }
-                var chart = getChartInstance('daily-trend', trendEl);
+                const chart = getChartInstance('daily-trend', trendEl);
                 if (chart) {
+                    chart.clear();
                     chart.setOption({
                         animationDuration: 300,
                         tooltip: {
@@ -2433,8 +2551,25 @@
                     });
                 }
             } catch (e) {
-                var trendEl = document.getElementById('dashboard-daily-trend-chart');
                 if (trendEl) trendEl.innerHTML = '<div class="analytics-empty">趋势数据加载失败: ' + escapeHtml(String(e && e.message ? e.message : e || '')) + '</div>';
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = '重新加载趋势';
+                }
+            }
+        }
+
+        function resetDashboardTrendPrompt() {
+            const trendEl = document.getElementById('dashboard-daily-trend-chart');
+            const button = document.getElementById('dashboard-trend-load');
+            const labels = { '1d': '今天', '7d': '近7天', '30d': '近1月', '90d': '近季度', '1y': '近1年' };
+            if (trendEl) {
+                trendEl.innerHTML = `<div class="analytics-empty">${escapeHtml(labels[dashboardTrendWindow] || dashboardTrendWindow)}趋势需要扫描多个会话。为避免打开页面时占满 CPU 和磁盘，请点击“加载趋势”。</div>`;
+            }
+            if (button) {
+                button.disabled = false;
+                button.textContent = '加载趋势';
             }
         }
 
@@ -2509,13 +2644,20 @@
 	            return nextValue;
 	        }
 
-	        async function fetchWithTimeout(url, timeoutMs = 20000) {
+	        async function fetchWithTimeout(url, timeoutMs = 20000, options = {}) {
 	            const controller = new AbortController();
 	            const timer = setTimeout(() => controller.abort(), timeoutMs);
+	            const upstreamSignal = options.signal;
+	            const abortFromUpstream = () => controller.abort();
+	            if (upstreamSignal) {
+	                if (upstreamSignal.aborted) controller.abort();
+	                else upstreamSignal.addEventListener('abort', abortFromUpstream, { once: true });
+	            }
 	            try {
-	                return await fetch(url, { signal: controller.signal });
+	                return await fetch(url, { ...options, signal: controller.signal });
 	            } finally {
 	                clearTimeout(timer);
+	                if (upstreamSignal) upstreamSignal.removeEventListener('abort', abortFromUpstream);
 	            }
 	        }
 
@@ -2543,43 +2685,60 @@
 	        }
 
 	        async function loadDashboardAnalytics(force = false) {
-	            try {
-	                if (force || dashboardSessions.length === 0) {
-	                    const res = await fetchWithTimeout('/api/v1/sessions?limit=500&format=json');
-	                    if (!res.ok) throw new Error(await res.text());
-	                    const data = await res.json();
-	                    dashboardSessions = Array.isArray(data.sessions) ? data.sessions : [];
+                if (!force && dashboardAnalyticsLoaded) return;
+                if (dashboardAnalyticsPromise) return dashboardAnalyticsPromise;
+                dashboardAnalyticsPromise = (async () => {
+	                try {
+                        if (force) {
+                            dashboardAnalyticsLoaded = false;
+                            dashboardStatsCache.clear();
+                            resetDashboardTrendCache();
+                            if (dashboardOverviewController) dashboardOverviewController.abort();
+                        }
+	                    if (force || dashboardSessions.length === 0) {
+	                        const res = await fetchWithTimeout('/api/v1/sessions?limit=500&format=json');
+	                        if (!res.ok) throw new Error(await res.text());
+	                        const data = await res.json();
+	                        dashboardSessions = Array.isArray(data.sessions) ? data.sessions : [];
+                        }
+                        setupDashboardTimeRange('dashboard-stats-range', 'stats', function() {
+                            loadDashboardOverview(false);
+                            const privateSelect = document.getElementById('dashboard-private-select');
+                            const groupSelect = document.getElementById('dashboard-group-select');
+                            if (privateSelect && privateSelect.value) loadDashboardStats('private');
+                            if (groupSelect && groupSelect.value) loadDashboardStats('group');
+                        });
+                        setupDashboardTimeRange('dashboard-trend-range', 'trend', function() {
+                            resetDashboardTrendPrompt();
+                            resetDashboardSemanticSummaryPrompt();
+                        });
+                        const privateSelect = document.getElementById('dashboard-private-select');
+                        const groupSelect = document.getElementById('dashboard-group-select');
+                        const privateValue = buildSessionOptions('private', privateSelect, privateSelect.value);
+                        const groupValue = buildSessionOptions('group', groupSelect, groupSelect.value);
+                        if (privateValue) loadDashboardStats('private');
+                        else document.getElementById('dashboard-private-body').innerHTML = '<div class="analytics-empty">暂无私聊会话</div>';
+                        if (groupValue) loadDashboardStats('group');
+                        else document.getElementById('dashboard-group-body').innerHTML = '<div class="analytics-empty">暂无群聊会话</div>';
+                        loadDashboardOverview(false);
+                        resetDashboardTrendPrompt();
+                        resetDashboardSemanticSummaryPrompt();
+                        dashboardAnalyticsLoaded = true;
+	                } catch (e) {
+	                    renderDashboardLoadError('private', e);
+	                    renderDashboardLoadError('group', e);
+	                }
+                })();
+                try {
+                    return await dashboardAnalyticsPromise;
+                } finally {
+                    dashboardAnalyticsPromise = null;
                 }
-                setupDashboardTimeRange('dashboard-stats-range', 'stats', function() {
-                    loadDashboardOverview();
-                    const privateSelect = document.getElementById('dashboard-private-select');
-                    const groupSelect = document.getElementById('dashboard-group-select');
-                    if (privateSelect && privateSelect.value) loadDashboardStats('private');
-                    if (groupSelect && groupSelect.value) loadDashboardStats('group');
-                });
-                setupDashboardTimeRange('dashboard-trend-range', 'trend', function() {
-                    loadDashboardDailyTrend();
-                    resetDashboardSemanticSummaryPrompt();
-                });
-                const privateSelect = document.getElementById('dashboard-private-select');
-                const groupSelect = document.getElementById('dashboard-group-select');
-                const privateValue = buildSessionOptions('private', privateSelect, privateSelect.value);
-                const groupValue = buildSessionOptions('group', groupSelect, groupSelect.value);
-                if (privateValue) loadDashboardStats('private');
-                else document.getElementById('dashboard-private-body').innerHTML = '<div class="analytics-empty">暂无私聊会话</div>';
-                if (groupValue) loadDashboardStats('group');
-                else document.getElementById('dashboard-group-body').innerHTML = '<div class="analytics-empty">暂无群聊会话</div>';
-		        loadDashboardOverview();
-                loadDashboardDailyTrend();
-                resetDashboardSemanticSummaryPrompt();
-	            } catch (e) {
-	                renderDashboardLoadError('private', e);
-	                renderDashboardLoadError('group', e);
-	            }
 	        }
 
         async function loadDashboardStats(kind, forceReloadSessions = false) {
             if (forceReloadSessions) {
+                if (dashboardDetailControllers[kind]) dashboardDetailControllers[kind].abort();
                 await loadDashboardAnalytics(true);
                 return;
             }
@@ -2591,6 +2750,9 @@
                 body.innerHTML = `<div class="analytics-empty">暂无${kind === 'private' ? '私聊' : '群聊'}会话</div>`;
                 return;
             }
+            if (dashboardDetailControllers[kind]) dashboardDetailControllers[kind].abort();
+            const controller = new AbortController();
+            dashboardDetailControllers[kind] = controller;
             body.innerHTML = '<div class="analytics-empty">统计中...</div>';
 	            try {
 	                const since = getDashboardSince(kind);
@@ -2599,12 +2761,16 @@
 	                params.set('chat', chat);
 	                if (since) params.set('since', since);
 	                const url = `/api/v1/stats?${params.toString()}`;
-	                const res = await fetchWithTimeout(url);
+	                const res = await fetchWithTimeout(url, 20000, { signal: controller.signal });
 	                if (!res.ok) throw new Error(await res.text());
 	                const data = await res.json();
-	                renderDashboardStats(kind, data);
+	                if (dashboardDetailControllers[kind] === controller) renderDashboardStats(kind, data);
 	            } catch (e) {
-	                renderDashboardLoadError(kind, e);
+	                if ((!e || e.name !== 'AbortError') && dashboardDetailControllers[kind] === controller) {
+	                    renderDashboardLoadError(kind, e);
+	                }
+	            } finally {
+	                if (dashboardDetailControllers[kind] === controller) dashboardDetailControllers[kind] = null;
 	            }
 	        }
         
@@ -4383,10 +4549,98 @@
             navigator.clipboard.writeText(text);
         }
 
+        function releaseResultDownload(type) {
+            const stored = resultDownloadURLs.get(type);
+            if (stored) URL.revokeObjectURL(stored.url);
+            resultDownloadURLs.delete(type);
+        }
+
+        function resultFileExtension(format) {
+            if (format === 'json') return 'json';
+            if (format === 'yaml' || format === 'yml') return 'yaml';
+            return 'txt';
+        }
+
+        function resultFilename(type, format) {
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            return `${type}_export_${timestamp}.${resultFileExtension(format)}`;
+        }
+
+        function downloadStoredResult(type) {
+            const stored = resultDownloadURLs.get(type);
+            if (!stored) return;
+            const anchor = document.createElement('a');
+            anchor.href = stored.url;
+            anchor.download = stored.filename;
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
+        }
+
+        async function renderQueryResponse(type, url, format, response) {
+            const resultArea = document.getElementById(`${type}-result`);
+            const blob = await response.blob();
+            releaseResultDownload(type);
+
+            if (blob.size > maxInlineResultBytes) {
+                const objectURL = URL.createObjectURL(blob);
+                resultDownloadURLs.set(type, {
+                    url: objectURL,
+                    filename: resultFilename(type, format)
+                });
+                const sizeMiB = (blob.size / 1024 / 1024).toFixed(2);
+                resultArea.innerHTML = `
+                    <div class="result-header">
+                        <span class="url-display">${escapeHtml(url)}</span>
+                        <button class="btn btn-primary text-sm" type="button" onclick="downloadStoredResult('${type}')">下载原始结果</button>
+                    </div>
+                    <div class="large-result-notice">
+                        <strong>结果大小 ${sizeMiB} MiB，已跳过页面渲染。</strong>
+                        <span>完整数据仍然保留，可直接下载；避免把大文本写入 DOM 导致浏览器假死。</span>
+                    </div>`;
+                return;
+            }
+
+            let text = await blob.text();
+            if (format === 'json' && blob.size <= maxPrettyJSONBytes) {
+                try {
+                    text = JSON.stringify(JSON.parse(text), null, 2);
+                } catch (_) {
+                    // Preserve the server response if it is not valid JSON.
+                }
+            }
+            resultArea.innerHTML = `
+                <div class="result-header">
+                    <span class="url-display">${escapeHtml(url)}</span>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-secondary text-sm" type="button" onclick="copyResult('${type}')">复制</button>
+                        <button class="btn btn-secondary text-sm" type="button" onclick="downloadResult('${type}', '${format}')">下载</button>
+                    </div>
+                </div>`;
+            const pre = document.createElement('pre');
+            pre.id = `${type}-pre`;
+            pre.textContent = text;
+            resultArea.appendChild(pre);
+        }
+
+        function changeChatlogPage(direction) {
+            const limitInput = document.getElementById('chatlog-limit');
+            const offsetInput = document.getElementById('chatlog-offset');
+            const limit = Math.max(1, Number.parseInt(limitInput.value, 10) || 100);
+            const offset = Math.max(0, Number.parseInt(offsetInput.value, 10) || 0);
+            offsetInput.value = String(Math.max(0, offset + direction * limit));
+            queryAPI('chatlog');
+        }
+
         // --- Generic API Query (Keep same as before) ---
         async function queryAPI(type) {
             // ... (Same logic as before, just kept for brevity since I'm overwriting file)
             const resultArea = document.getElementById(`${type}-result`);
+            const previousController = activeQueryControllers.get(type);
+            if (previousController) previousController.abort();
+            const controller = new AbortController();
+            activeQueryControllers.set(type, controller);
+            releaseResultDownload(type);
             resultArea.classList.remove('hidden');
             resultArea.innerHTML = '<div class="loading">正在处理...</div>';
 
@@ -4437,6 +4691,8 @@
                     
                     const limit = document.getElementById('chatlog-limit').value;
                     if(limit) params.append('limit', limit);
+                    const offset = document.getElementById('chatlog-offset').value;
+                    if(offset) params.append('offset', offset);
 
 	                    const msgType = document.getElementById('chatlog-msg-type').value;
 	                    if(msgType) params.append('msg_type', msgType);
@@ -4479,40 +4735,33 @@
                 }
                 const url = `${endpoint}?${params.toString()}`;
 
-                const res = await fetch(url);
+                const res = await fetch(url, { signal: controller.signal });
                 if (!res.ok) throw new Error(res.statusText);
-
-                let text;
-                if(format === 'json') {
-                    const json = await res.json();
-                    text = JSON.stringify(json, null, 2);
-                } else {
-                    text = await res.text();
-                }
-
-                resultArea.innerHTML = `
-                    <div class="result-header">
-                        <span class="url-display">${url}</span>
-                        <div style="display:flex; gap:10px;">
-                            <button class="btn btn-secondary text-sm" onclick="copyResult('${type}')">复制</button>
-                        </div>
-                    </div>
-                    <pre id="${type}-pre">${escapeHtml(text)}</pre>
-                `;
-
+                await renderQueryResponse(type, url, format, res);
             } catch (e) {
-                resultArea.innerHTML = `<div style="color:var(--danger)">请求错误: ${e.message}</div>`;
+                if (activeQueryControllers.get(type) === controller && (!e || e.name !== 'AbortError')) {
+                    resultArea.innerHTML = `<div style="color:var(--danger)">请求错误: ${escapeHtml(e.message)}</div>`;
+                }
+            } finally {
+                if (activeQueryControllers.get(type) === controller) activeQueryControllers.delete(type);
             }
         }
 
         function downloadResult(type, format) {
-            const text = document.getElementById(`${type}-pre`).innerText;
+            if (resultDownloadURLs.has(type)) {
+                downloadStoredResult(type);
+                return;
+            }
+            const pre = document.getElementById(`${type}-pre`);
+            if (!pre) return;
+            const text = pre.innerText;
             let mimeType = 'text/plain';
-            let ext = 'txt';
+            let ext = resultFileExtension(format);
             
             if (format === 'json') {
                 mimeType = 'application/json';
-                ext = 'json';
+            } else if (format === 'yaml' || format === 'yml') {
+                mimeType = 'application/yaml';
             }
 
             const blob = new Blob([text], { type: mimeType });
@@ -4628,7 +4877,9 @@
         }
 
         function copyResult(type) {
-            const text = document.getElementById(`${type}-pre`).innerText;
+            const pre = document.getElementById(`${type}-pre`);
+            if (!pre) return;
+            const text = pre.innerText;
             navigator.clipboard.writeText(text).then(() => {
                 alert('已复制到剪贴板');
             });

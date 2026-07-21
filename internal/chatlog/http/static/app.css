@@ -474,6 +474,17 @@
             border-bottom: 1px dashed var(--border);
         }
 
+        .large-result-notice {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 14px;
+            border: 1px solid #f59e0b;
+            border-radius: 8px;
+            background: #fffbeb;
+            color: #92400e;
+        }
+
         .url-display {
             font-family: monospace;
             background: #e2e8f0;

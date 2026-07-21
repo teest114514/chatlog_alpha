@@ -549,9 +549,26 @@
         }
     };
 
-    document.addEventListener('DOMContentLoaded', async () => {
+    let initialized = false;
+    let initializationPromise = null;
+
+    window.sendDebugInitialize = function sendDebugInitialize() {
+        if (initialized) return Promise.resolve();
+        if (initializationPromise) return initializationPromise;
+        initializationPromise = (async () => {
+            window.sendDebugSyncForm();
+            await window.sendDebugCheckEnvironment();
+            await restoreActiveJob();
+            initialized = true;
+        })().finally(() => {
+            initializationPromise = null;
+        });
+        return initializationPromise;
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Keep form state correct without probing Frida or polling jobs until
+        // the user actually opens the send-debug tab.
         window.sendDebugSyncForm();
-        await window.sendDebugCheckEnvironment();
-        await restoreActiveJob();
     });
 })();
