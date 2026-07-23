@@ -33,6 +33,9 @@ type ProcessConfig struct {
 	Semantic             SemanticConfig `mapstructure:"semantic" json:"semantic"`
 	LastTime             int64          `mapstructure:"last_time" json:"last_time"`
 	Files                []File         `mapstructure:"files" json:"files"`
+
+	// LogRetentionDays 日志文件保留天数（默认 7，范围 1-365）
+	LogRetentionDays int `mapstructure:"log_retention_days" json:"log_retention_days"`
 }
 
 type File struct {

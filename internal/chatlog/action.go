@@ -206,7 +206,7 @@ func (m *Manager) SetDataKey(key string) error {
 	return nil
 }
 
-func (m *Manager) SetConfigValues(httpAddr, workDir, dataKey, imageKey, dataDir string, walEnabled *bool, autoDecompressDebounce *int) error {
+func (m *Manager) SetConfigValues(httpAddr, workDir, dataKey, imageKey, dataDir string, walEnabled *bool, autoDecompressDebounce *int, logRetentionDays *int) error {
 	if httpAddr != "" {
 		if err := m.SetHTTPAddr(httpAddr); err != nil {
 			return err
@@ -231,6 +231,9 @@ func (m *Manager) SetConfigValues(httpAddr, workDir, dataKey, imageKey, dataDir 
 	}
 	if autoDecompressDebounce != nil {
 		m.ctx.SetAutoDecryptDebounce(*autoDecompressDebounce)
+	}
+	if logRetentionDays != nil {
+		m.ctx.SetLogRetentionDays(*logRetentionDays)
 	}
 	return nil
 }
