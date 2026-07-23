@@ -105,7 +105,7 @@ func NewService(conf Config, db *database.Service) *Service {
 	router.Use(
 		errors.RecoveryMiddleware(),
 		errors.ErrorHandlerMiddleware(),
-		gin.LoggerWithWriter(log.Logger, "/health"),
+		gin.LoggerWithWriter(log.Logger, "/health", "/api/v1/ping"),
 		corsMiddleware(conf.GetHTTPAddr()),
 	)
 

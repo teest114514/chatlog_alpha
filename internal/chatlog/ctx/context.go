@@ -14,6 +14,7 @@ import (
 	"github.com/sjzar/chatlog/internal/wechat"
 	"github.com/sjzar/chatlog/pkg/config"
 	"github.com/sjzar/chatlog/pkg/filecopy"
+	clog "github.com/sjzar/chatlog/pkg/log"
 	"github.com/sjzar/chatlog/pkg/util"
 )
 
@@ -62,6 +63,9 @@ type Context struct {
 	HookForwardContacts  string
 	HookForwardChatRooms string
 	Semantic             conf.SemanticConfig
+
+	// 日志保留天数（默认 7，范围 1-365）
+	LogRetentionDays int
 
 	// 当前选中的微信实例
 	Current *wechat.Account
@@ -126,6 +130,10 @@ func (c *Context) SwitchHistory(account string) {
 		c.HookForwardContacts = history.HookForwardContacts
 		c.HookForwardChatRooms = history.HookForwardChatRooms
 		c.Semantic = conf.NormalizeSemanticConfig(history.Semantic)
+		c.LogRetentionDays = history.LogRetentionDays
+		if c.LogRetentionDays < 1 {
+			c.LogRetentionDays = clog.DefaultRetentionDays
+		}
 	} else {
 		c.Account = ""
 		c.Platform = ""
@@ -148,7 +156,10 @@ func (c *Context) SwitchHistory(account string) {
 		c.HookForwardContacts = ""
 		c.HookForwardChatRooms = ""
 		c.Semantic = conf.NormalizeSemanticConfig(conf.SemanticConfig{})
+		c.LogRetentionDays = clog.DefaultRetentionDays
 	}
+	// 配置加载/账号切换后,把用户设置的保留天数回填给日志轮转器
+	clog.SetRetention(c.LogRetentionDays)
 }
 
 func (c *Context) SwitchCurrent(info *wechat.Account) {
@@ -418,6 +429,24 @@ func (c *Context) SetHookBeforeCount(n int) {
 	c.UpdateConfig()
 }
 
+// SetLogRetentionDays 设置日志保留天数（自动裁剪到 1-365），立即生效并持久化。
+func (c *Context) SetLogRetentionDays(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > 365 {
+		n = 365
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.LogRetentionDays == n {
+		return
+	}
+	c.LogRetentionDays = n
+	clog.SetRetention(n)
+	c.UpdateConfig()
+}
+
 func (c *Context) SetHookAfterCount(n int) {
 	if n < 0 {
 		n = 0
@@ -503,6 +532,7 @@ func (c *Context) UpdateConfig() {
 		HookForwardContacts:  c.HookForwardContacts,
 		HookForwardChatRooms: c.HookForwardChatRooms,
 		Semantic:             conf.NormalizeSemanticConfig(c.Semantic),
+		LogRetentionDays:     c.LogRetentionDays,
 	}
 
 	if c.conf.History == nil {

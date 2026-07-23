@@ -421,6 +421,14 @@ make build
 
 其他命令：`action set`、`action switch-account`。每个事件包含 `type`、`action`、`stage`、`message`、`timestamp`，成功结果放在 `data`。`action status` 只返回 `data_key_present` / `image_key_present` 和脱敏占位符，不回传密钥原文；需要写入密钥时使用 `action set --data-key` / `--image-key`。
 
+`action set` 也可配置日志保留天数，例如设为 14 天：
+
+```bash
+./bin/chatlog action set --log-retention-days 14 --set-log-retention-days
+```
+
+数值类配置都配有对应的 `--set-<name>` 布尔开关（如 `--set-log-retention-days`、`--set-auto-decompress-debounce`），用于显式声明“应用此值”，以区分“未提供该参数”与“确实要设为 0”。
+
 ### Web 原生发信调试
 
 Web 控制台的“发信调试”Tab 提供可控生命周期的 macOS Frida 发送链路：
@@ -452,6 +460,15 @@ http://127.0.0.1:5030/
 ```
 
 如果不需要局域网访问，建议在配置中将监听地址限制为 `127.0.0.1:5030`。
+
+> **关于访问日志与轮询频率（业务方须知）**
+>
+> HTTP 服务会为**每个请求**记录一条访问日志（access log）写入 `chatlog.log`，其中 `GET /health` 与 `GET /api/v1/ping` 已被排除、不记录。若业务方以较高频率轮询其它接口（如 `GET /api/v1/contacts`），长期累积会产生大量日志并占满磁盘。
+>
+> 建议：
+> - **健康检查请使用 `/health` 或 `/api/v1/ping`**（这两个不写访问日志）；
+> - 按实际需要**降低对 `/api/v1/contacts`、`/api/v1/sessions` 等接口的轮询频率**，避免每数秒一次的持续拉取；
+> - 日志已按天轮转并默认保留 7 天（见「权限与数据目录 → 日志保留与轮转」），但降低轮询才是从源头控制日志量与磁盘占用的根本手段。
 
 常用接口：
 
@@ -558,9 +575,17 @@ index_chatrooms:
 | 账号运行配置 | 数据目录下的 `chatlog.json` |
 | macOS 默认工作目录 | `~/Documents/chatlog/<账号>/` |
 | Windows 默认工作目录 | `~/chatlog/<账号>/` |
+| 运行日志 | macOS `~/Documents/chatlog/log/`、Windows `~/chatlog/log/`（`chatlog.log`） |
 | 查询缓存 | `~/.chatlog/wcdb_cache/` |
 
 `all_keys.json` 包含敏感密钥，默认以 `0600` 权限写入。不要把密钥、解密数据库、聊天内容或模型 API Key 提交到 Git 仓库。
+
+### 日志保留与轮转
+
+运行日志写入 `<工作目录>/log/chatlog.log`，并**自动轮转**：每天 0 点切分一个新文件，超过保留天数的旧文件会被清理；单文件超过 500 MB 也会立即轮转（异常兜底），历史文件以 gzip 压缩存储。
+
+- **默认保留 7 天**，可在 TUI 的「设置 → 设置日志保留天数」中调整（有效范围 1–365 天）；该配置持久化在账号运行配置 `chatlog.json` 中。
+- 即便有轮转，长期运行且被高频轮询的服务日志仍可能偏大。日志中占比最高的通常是每个 HTTP 请求的访问日志（access log）——降低轮询频率才是从源头减少日志量的根本手段，详见「HTTP API 与 MCP」章节的轮询建议。
 
 ## GitHub 自动构建
 
@@ -585,6 +610,19 @@ index_chatrooms:
 由于旧 Release 会在编译前删除，如果新构建失败，`latest` 页面会暂时不存在；修复构建后重新推送即可生成新的发布。
 
 ## 常见问题
+
+### 日志文件（chatlog.log）过大
+
+运行日志位于 `<工作目录>/log/chatlog.log`。新版本已内置**按天轮转 + 默认保留 7 天**（可在 TUI「设置 → 设置日志保留天数」调整，范围 1–365 天），正常情况下不会无限增长。
+
+若运行的是旧版本、或日志已异常膨胀，可按以下方式处理：
+
+1. **不要直接 `rm`** 正在写入的日志文件——进程仍持有该文件句柄，删除后磁盘空间不会立即释放，且进程会继续写入不可见的文件。
+2. macOS 无 GNU `truncate`，用 shell 截断即可立即回收空间且不打断服务：
+   ```bash
+   : > "$HOME/Documents/chatlog/log/chatlog.log"
+   ```
+3. 根因多为高频轮询产生的访问日志，请参考「HTTP API 与 MCP」章节降低轮询频率。
 
 ### Frida 无法附加微信进程
 

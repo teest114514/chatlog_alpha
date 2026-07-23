@@ -15,6 +15,7 @@ import (
 	"github.com/sjzar/chatlog/internal/ui/infobar"
 	"github.com/sjzar/chatlog/internal/ui/menu"
 	"github.com/sjzar/chatlog/internal/wechat"
+	clog "github.com/sjzar/chatlog/pkg/log"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -547,6 +548,11 @@ func (a *App) settingSelected(i *menu.Item) {
 			description: "命中关键词后保留条数（默认5）",
 			action:      a.settingHookAfterCount,
 		},
+		{
+			name:        "设置日志保留天数",
+			description: "日志文件保留天数（1-365，默认7）",
+			action:      a.settingLogRetentionDays,
+		},
 	}
 
 	subMenu := menu.NewSubMenu("设置")
@@ -773,6 +779,30 @@ func (a *App) settingHookBeforeCount() {
 		a.ctx.SetHookBeforeCount(n)
 		a.mainPages.RemovePage("submenu2")
 		a.showInfo(fmt.Sprintf("前文条数已设置为 %d", n))
+	})
+	formView.AddButton("取消", func() { a.mainPages.RemovePage("submenu2") })
+	a.mainPages.AddPage("submenu2", formView, true, true)
+	a.SetFocus(formView)
+}
+
+func (a *App) settingLogRetentionDays() {
+	formView := form.NewForm("设置日志保留天数")
+	temp := fmt.Sprintf("%d", a.ctx.LogRetentionDays)
+	formView.AddInputField("保留天数", temp, 0, tview.InputFieldInteger, func(text string) { temp = text })
+	formView.AddButton("保存", func() {
+		n := clog.DefaultRetentionDays
+		if v, err := strconv.Atoi(strings.TrimSpace(temp)); err == nil {
+			n = v
+		}
+		if n < 1 {
+			n = 1
+		}
+		if n > 365 {
+			n = 365
+		}
+		a.ctx.SetLogRetentionDays(n)
+		a.mainPages.RemovePage("submenu2")
+		a.showInfo(fmt.Sprintf("日志保留天数已设置为 %d", n))
 	})
 	formView.AddButton("取消", func() { a.mainPages.RemovePage("submenu2") })
 	a.mainPages.AddPage("submenu2", formView, true, true)

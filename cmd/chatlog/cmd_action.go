@@ -56,6 +56,8 @@ var (
 	setWalEnabledProvided             bool
 	setAutoDecompressDebounce         int
 	setAutoDecompressDebounceProvided bool
+	setLogRetentionDays               int
+	setLogRetentionDaysProvided       bool
 )
 
 var actionCmd = &cobra.Command{
@@ -96,6 +98,8 @@ func init() {
 	actionSetCmd.Flags().BoolVar(&setWalEnabledProvided, "set-wal-enabled", false, "应用 WAL 开关")
 	actionSetCmd.Flags().IntVar(&setAutoDecompressDebounce, "auto-decompress-debounce", 0, "自动解密防抖毫秒数")
 	actionSetCmd.Flags().BoolVar(&setAutoDecompressDebounceProvided, "set-auto-decompress-debounce", false, "应用自动解密防抖值")
+	actionSetCmd.Flags().IntVar(&setLogRetentionDays, "log-retention-days", 0, "日志保留天数（1-365）")
+	actionSetCmd.Flags().BoolVar(&setLogRetentionDaysProvided, "set-log-retention-days", false, "应用日志保留天数")
 }
 
 var actionStatusCmd = &cobra.Command{
@@ -236,6 +240,7 @@ var actionSetCmd = &cobra.Command{
 			setDataDir,
 			optionalActionBool(setWalEnabledProvided, setWalEnabled),
 			optionalActionInt(setAutoDecompressDebounceProvided, setAutoDecompressDebounce),
+			optionalActionInt(setLogRetentionDaysProvided, setLogRetentionDays),
 		)
 		if err != nil {
 			emitActionFailure("set", "set_failed", err)
