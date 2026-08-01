@@ -3,6 +3,7 @@
 > [!IMPORTANT]
 > ## 用户订阅（置顶）
 > 因收到腾讯方面关于侵权问题的投诉，本仓库已停止公开源代码、构建产物和历史 Release，仅保留项目说明。
+> 仓库已经转移至https://gitflic.ru/project/goring/chatlog_alpha
 >
 > **项目状态、更新通知与用户订阅入口：**
 > **[加入 Telegram 订阅](https://t.me/+zy1N_8leq8IxYmY8)**
